@@ -1,8 +1,8 @@
 <!-- Copyright Buckley Builds LLC 2026 All Rights Reserved. -->
-# Vibe3D — AI agent guide (Unreal Engine 5.8)
+# Vibe3D — AI agent guide (Unreal Engine 5.9)
 
 Vibe3D is an **AI Editor Toolset for procedural 3D modeling**. It registers one service,
-`Vibe3D.ModelingService`, into Unreal 5.8's native `ToolsetRegistry`, and a `modeling` agent skill
+`Vibe3D.ModelingService`, into Unreal 5.9's native `ToolsetRegistry`, and a `modeling` agent skill
 into the engine's `AgentSkill` system — both reachable through the MCP tools you already have.
 
 **ALWAYS act on meshes through the service (MCP tools or editor Python) — NEVER read or write
@@ -13,7 +13,7 @@ into the engine's `AgentSkill` system — both reachable through the MCP tools y
 - **Load the skill first**: `call_tool` → `AgentSkillToolset.GetSkills` with `modeling`. It holds the
   session model, the frame semantics for sweeps and lofts, the texturing pipeline, the rigging
   workflow and the gotchas that bit real builds. Do not guess at those from memory.
-- **Batch in `execute_python_code`.** Every function is a static on `unreal.ModelingService`
+- **Batch in `execute_python`.** Every function is a static on `unreal.ModelingService`
   (`svc = unreal.ModelingService`), so a whole build — create, edit, unwrap, bake, save, verify —
   is one round-trip. `print()` the evidence you need (`get_mesh_info`, `get_uv_stats`, `list_bones`).
 - **Handles, not assets.** Meshes live in an in-editor session as integer handles wrapping a
@@ -42,7 +42,7 @@ svc.release_all_meshes()
 
 ## 2. Tool roster
 
-`list_toolsets` shows `Vibe3D.ModelingService`; `describe_toolset` lists every tool with its
+`list_toolsets` shows `Vibe3D.ModelingService`; `describe_toolsets` lists every tool with its
 parameters. The areas, in the order a build usually runs:
 
 | Area | Examples |
