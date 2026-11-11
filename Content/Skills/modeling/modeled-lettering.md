@@ -8,7 +8,7 @@ Use this workflow when the requested text must be actual mesh geometry, such as 
 with Unreal lights. These notes come from the Vibe3D logo session in UE 5.8.
 
 - Obtain flattened outlines from an installed font, then send the polygon coordinates through
-  `ModelingService.append_extrude_polygon`. Windows `System.Drawing.Drawing2D.GraphicsPath.AddString`
+  `unreal.GeometryScript_Primitives.append_simple_extrude_polygon` in `execute_python`. Windows `System.Drawing.Drawing2D.GraphicsPath.AddString`
   and `Flatten` worked for this. Preserve contour boundaries; do not join every path point into one
   polygon. Remove duplicate closing points and consecutive duplicate vertices before extrusion.
 - Classify contour nesting using containment, not winding alone. Even nesting depths are filled
@@ -17,8 +17,8 @@ with Unreal lights. These notes come from the Vibe3D logo session in UE 5.8.
   An island inside a counter becomes another filled contour.
 - Counter cutters must extend beyond both ends of the text depth. Coplanar cutter caps can leave
   fragments or close the counters. Check letters such as B, D, and e from the front and side.
-- Reflections of outline coordinates reverse winding. Run `ensure_outward` separately on each
-  extruded outer contour and each cutter before boolean operations or assembly. Recomputing
+- Reflections of outline coordinates reverse winding. Check signed volume with native GeometryScript and reverse triangle orientation when needed,
+  separately on each extruded outer contour and cutter before boolean operations or assembly. Recomputing
   shading normals alone does not fix inward triangle orientation.
 - Validate the font outlines visually before detailing the whole word. Arial outlines worked in
   this session after another font produced broken joins; this is evidence to inspect contours,

@@ -1,385 +1,158 @@
 ---
 name: modeling
 display_name: Mesh Modeling
-description: Create and edit static/skeletal mesh geometry programmatically (ModelingService) — primitives, booleans, extrude/inset/bevel on selections, remesh/simplify/subdivide, deform, voxel ops, auto-UV, normals, repair, collision, LODs, bake, and saving to assets. Use when the user asks to build, kitbash, block out, fix, clean up, or generate 3D meshes in the editor without Blender.
+description: Model dynamic meshes with native GeometryScript and use ModelingService for session handles, rigging, UV statistics, textures and polyline details.
 vibe3d_classes:
   - ModelingService
 unreal_classes:
   - DynamicMesh
   - StaticMesh
-  - GeometryScript_MeshPrimitives
+  - GeometryScript_Primitives
   - GeometryScript_MeshBooleans
-  - GeometryScript_MeshUVs
-  - StaticMeshEditorSubsystem
+  - GeometryScript_UVs
 keywords:
   - modeling
   - mesh
-  - geometry
   - geometry script
   - primitive
   - boolean
   - extrude
-  - inset
-  - bevel
   - remesh
-  - simplify
-  - subdivide
-  - voxel
-  - collision
-  - lod
-  - bake normal map
-  - kitbash
-  - blockout
-  - procedural mesh
+  - uv
+  - rigging
+  - bake
 ---
 <!-- Copyright Buckley Builds LLC 2026 All Rights Reserved. -->
 
-> 🧠 **Brains complement:** IF an `unreal-engine-skills-manager` tool (external MCP) exists in this session, call it with `{action: "load", skill: "meshes-static-and-skeletal"}` for UE domain knowledge on this topic — correct APIs, architecture, best practices — and treat it as the rubric for any review / "best practices" question. If no such tool is available (e.g. running under Claude Code or Codex without that MCP), skip this line entirely and proceed with this skill alone — do NOT attempt the call.
-
 # Mesh Modeling Skill
 
-`ModelingService` (`unreal.ModelingService`) is the programmatic half of Unreal's **Modeling Mode**:
-the same operators the 97 interactive tools are built on, exposed as functions on an in-memory
-`DynamicMesh` that you build up and then save as a `StaticMesh` / `SkeletalMesh` asset. Nothing
-here needs a viewport, a gizmo, or Blender.
+Model in editor `execute_python` with native `unreal.GeometryScript_*` libraries. Vibe3D's
+`unreal.ModelingService` supplies session handles and the specific gaps listed below; it is no
+longer a general wrapper around Modeling Mode. Work on the live `UDynamicMesh` returned by
+`get_dynamic_mesh`, then release only your own handles. No viewport or Blender is needed to build,
+but inspect the result visually before accepting it.
 
-**Mental model — a session of mesh handles:**
-
-1. `create_mesh()` / `load_mesh_from_static_mesh(path)` / `load_mesh_from_actor(label)` → a result; check `success`, then use its integer **`.handle`**.
-2. Every op mutates the handle's mesh in place and returns an `FModelingResult` (`success`, `message`, `triangle_count`, `vertex_count`).
-3. `save_mesh_to_static_mesh(handle, "/Game/Props/SM_Crate")` writes the asset (creates or replaces); `spawn_static_mesh_actor(...)` places it.
-4. `release_mesh(handle)` when done (or `release_all_meshes()`); handles are session-scoped and not saved.
-
-Operations that take a **selection** use a named selection created on the same handle
-(`select_all`, `select_by_normal_angle`, `select_in_box`, `select_in_sphere`, `select_by_material_id`,
-`expand_contract_selection`, `invert_selection`). Pass `""` as the selection name to mean "the whole mesh".
-
-## Quick start — a crate with a lid seam, UVs, collision, LODs
+## Quick start
 
 ```python
 import unreal
 svc = unreal.ModelingService
-h = svc.create_mesh().handle
-svc.append_box(h, unreal.Transform(), 100, 100, 100)                       # body
-lid = svc.create_mesh().handle
-svc.append_box(lid, unreal.Transform(unreal.Vector(0, 0, 90)), 104, 104, 4) # lid slab
-svc.boolean(h, lid, "Union")
-svc.select_by_normal_angle(h, "top", unreal.Vector(0, 0, 1), 5.0)
-svc.inset_faces(h, "top", 6.0)                                              # panel line on the lid
-svc.extrude_faces(h, "top", -1.5)                                           # recess it
-svc.bevel_polygroups(h, 0.8)
-svc.recompute_normals(h, 30.0)
-svc.auto_uv(h, "PatchBuilder", 0)
-r = svc.save_mesh_to_static_mesh(h, "/Game/Props/SM_Crate", True, True)     # nanite off, collision on
-print("CREATED:", r.asset_path, r.triangle_count, "tris")
-svc.generate_collision("/Game/Props/SM_Crate", "ConvexHulls", 4)
-svc.set_lods("/Game/Props/SM_Crate", [1.0, 0.5, 0.25])
-svc.spawn_static_mesh_actor("/Game/Props/SM_Crate", unreal.Transform(unreal.Vector(0, 0, 0)), "Crate_01")
-svc.release_all_meshes()
+created = svc.create_mesh()
+assert created.success, created.message
+h = created.handle
+try:
+    dm = svc.get_dynamic_mesh(h)
+    assert dm is not None
+    unreal.GeometryScript_Primitives.append_box(
+        dm, unreal.GeometryScriptPrimitiveOptions(), unreal.Transform(), 100, 100, 100)
+    assert unreal.GeometryScript_MeshQueries.get_is_closed_mesh(dm)
+    unreal.GeometryScript_MeshRepair.compact_mesh(dm)
+    unreal.GeometryScript_UVs.auto_generate_x_atlas_mesh_u_vs(
+        dm, 0, unreal.GeometryScriptXAtlasOptions())
+    stats = svc.get_uv_stats(h)
+    assert stats.success and stats.num_unset_triangles == 0, stats.message
+    print(stats.message)
+finally:
+    svc.release_mesh(h)
 ```
 
-Then **look at it**, framed on the actor, using the available viewport capture tool (native Unreal
-MCP exposes `capture_image` with `source="editor"`). A successful call is not proof the shape is right.
+To create a static asset, call `GeometryScript_NewAssetUtils.create_new_static_mesh_asset_from_mesh(dm, path, opts)` and check the returned `outcome == unreal.GeometryScriptOutcomePins.SUCCESS`. For an existing asset, `GeometryScript_AssetUtils.copy_mesh_to_static_mesh(dm, sm, unreal.GeometryScriptCopyMeshToAssetOptions(), unreal.GeometryScriptMeshWriteLOD(), True)` returns `(dm, outcome)`; check the same outcome. Establish ownership and replacement policy before writing. A newly created asset is not automatically proof of its appearance, collision or LOD setup.
 
-A level made with `new_level()` has **no lighting**, so a black capture may be a lighting problem.
-For daylight, use a DirectionalLight pointing down (`Rotator(roll=0, pitch=-48, yaw=125)`),
-a SkyLight and SkyAtmosphere. A dark studio can instead use movable RectLights and a floor.
-Use an unbound PostProcessVolume with fixed exposure for consistent material evaluation; tune
-exposure to the actual light intensities rather than treating one bias value as universal.
+## Native GeometryScript and Python facts
 
-For modeled lettering and logos, read [modeled-lettering.md](modeled-lettering.md).
-For lit promotional images, high-resolution capture, or distributable asset packs, read
-[showcase-and-delivery.md](showcase-and-delivery.md). These sibling documents are also registered
-as native Unreal agent sub-doc skills by Vibe3D.
+Use `GeometryScript_Primitives` for box, sphere, cylinder, polygon extrude and sweep;
+`GeometryScript_MeshBooleans` for boolean, self-union, plane cut and mirror;
+`GeometryScript_MeshSelection` / `MeshSelectionQueries` for selections and bounds;
+`GeometryScript_MeshModeling`, `MeshEdits`, `Remeshing`, `MeshRepair`, `MeshSimplification`,
+`MeshDeformers` and `MeshVoxelProcessing` for editing and processing. Use `GeometryScript_UVs`,
+`Normals`, `PolyGroups`, `Materials`, `VertexColors`, `MeshSpatial`, `MeshQueries`, `Bake`,
+`AssetUtils` and `NewAssetUtils` for the corresponding UV, shading, query, bake and asset work.
+Use the editor asset/actor APIs for asset management and placement. Discover exact signatures and
+options in the UE 5.9 source or reflected API, including `ScriptName` overrides.
 
-## Function map (Python names)
+Python splits some acronyms unusually: `auto_generate_x_atlas_mesh_u_vs`, `layout_mesh_u_vs`,
+`recompute_mesh_u_vs`, `enable_material_i_ds`, `get_all_triangle_material_i_ds`, and
+`get_num_triangle_i_ds`. Many calls return `(mesh, value...)`, while `get_max_material_id(m)`
+returns `(int, has_material_i_ds)` and selection calls return `(mesh, selection)`; when unsure,
+inspect the returned values and pick by type rather than guessing a position. Native
+`append_torus` requires a `GeometryScriptRevolveOptions` argument and, like native
+`append_revolve_polygon` in 5.9, ignores `PrimitiveOptions.MaterialID`: use the service variants
+when those IDs matter. Native box and linear stairs honor that option.
 
-| Area | Functions |
+For hard-angle normals set `split_by_opening_angle` and `opening_angle_deg` on
+`GeometryScriptSplitNormalsOptions`, then call `GeometryScript_Normals.compute_split_normals`
+with that struct and `GeometryScriptCalculateNormalsOptions`.
+
+## ModelingService: kept gaps
+
+| Area | Python functions |
 |---|---|
-| Session | `create_mesh()`, `load_mesh_from_static_mesh(path, lod=0)`, `load_mesh_from_skeletal_mesh(path, lod=0)`, `load_mesh_from_actor(label)`, `copy_mesh(handle)`, `release_mesh(handle)`, `release_all_meshes()`, `list_meshes()`, `get_mesh_info(handle)` |
-| Primitives (append into a handle) | `append_box`, `append_sphere`, `append_sphere_box`, `append_cylinder`, `append_cone`, `append_capsule`, `append_torus`, `append_rectangle`, `append_disc`, `append_stairs`, `append_curved_stairs`, `append_extrude_polygon(handle, transform, points2d, height)`, `append_revolve_polygon(handle, transform, points2d, radius, steps, degrees)`, `append_sweep_polyline(handle, transform, profile2d, path_transforms)` (open tube — prefer the next one for solids), `append_loft(handle, transform, closed_profile2d, frames)` (capped, always outward; frame scale = chord), `append_mesh(handle, other_handle, transform)`, `append_mesh_at_transforms(handle, other, [transforms])`, `append_mesh_along_polyline(handle, other, points, spacing, up)` |
-| Booleans | `boolean(target, tool, "Union|Subtract|Intersection", tool_transform)`, `self_union`, `plane_cut(handle, plane_transform, fill_holes)`, `mirror(handle, plane_transform, weld)`, `cut_groove_along_polyline(handle, points, width, depth, up)` |
-| Selections | `select_all(handle, name)`, `select_by_normal_angle(handle, name, normal, max_angle_deg)`, `select_in_box(handle, name, box_min, box_max)`, `select_in_sphere(handle, name, center, radius)`, `select_by_material_id(handle, name, material_id)`, `select_by_polygroup(handle, name, group_id)`, `select_connected(handle, name, point)` (whole connected piece nearest the point), `select_by_bone_weight(handle, name, "bone,bone", min_weight=0.25)` (vertices those bones drag — region finding for weight repair), `expand_contract_selection(handle, name, new_name, iterations, contract)`, `invert_selection(handle, name, new_name)`, `selection_count(handle, name)`, `selection_bounds(handle, name)` → `(min, max)` (Python drops the bool; an empty selection gives zero vectors), `clear_selections(handle)` |
-| Poly edit on selections | `extrude_faces(handle, sel, distance, direction)`, `offset_faces(handle, sel, distance)`, `inset_faces(handle, sel, distance)`, `outset_faces(handle, sel, distance)`, `delete_faces(handle, sel)`, `translate_selection(handle, sel, delta)`, `bevel_polygroups(handle, distance, subdivisions)`, `offset_mesh(handle, distance)`, `shell_mesh(handle, thickness)` |
-| Mesh | `remesh(handle, target_triangles, edge_length=0)`, `simplify_to_triangle_count(handle, n)`, `simplify_to_vertex_count(handle, n)`, `simplify_to_tolerance(handle, tolerance)`, `simplify_planar(handle)` (lossless, coplanar only), `subdivide(handle, level, "PN|Uniform|CatmullClark|Loop")`, `smooth(handle, sel, iterations, alpha)`, `fill_holes(handle)`, `weld_edges(handle, tolerance)`, `repair(handle)` (degenerates + small components), `remove_hidden_triangles(handle)`, `split_by_components(handle)` → new handles |
-| Queries, sampling, hulls | `ray_cast(handle, origin, direction)` / `nearest_point(handle, point)` → `{found, position, triangle_id, distance}`, `is_point_inside(handle, point)`, `sample_surface_points(handle, radius, max)` → transforms for scattering, `convex_hull(handle)`, `convex_decomposition(handle, num_hulls)`, `swept_hull(handle, frame)` → NEW handles, `measure_distance(a, b)` → max/mean/rms (verify LODs and simplifications) |
-| Deform | `bend(handle, orientation, angle, extent)`, `twist(...)`, `flare(handle, orientation, percent_x, percent_y, extent)`, `noise(handle, sel, magnitude, frequency, seed)`, `displace_from_texture(handle, sel, texture_path, magnitude, uv_layer)` |
-| Voxel | `voxel_solidify(handle, grid_resolution)`, `voxel_morphology(handle, "Dilate|Contract|Open|Close", distance, grid_resolution)` |
-| UVs / normals / groups / materials / colors | `auto_uv(handle, "XAtlas|PatchBuilder", uv_layer)`, `project_uv(handle, "Planar|Box|Cylinder", transform, uv_layer, sel)`, `repack_uv(handle, uv_layer, resolution)`, `set_num_uv_layers`, `recompute_normals(handle, hard_angle_deg)`, `flip_normals`, `ensure_outward(handle)` (flip if the enclosed volume is negative), `compute_polygroups(handle, "Angle|UVIslands|Components|Polygons", crease_angle)`, `set_material_id(handle, sel, id)`, `remap_material_id(handle, from, to)`, `set_vertex_color(handle, sel, color)`, `set_polygroup(handle, sel, group_id=-1)`, `recompute_uvs(handle, uv_layer, "Polygroups|UVIslands", "SpectralConformal|Conformal|ExpMap", sel)`, `transform_uv(handle, uv_layer, sel, translation, scale, rotation_deg, origin)`, `layout_uv(handle, uv_layer, "Repack|Stack|Normalize|Transform", sel, resolution)`, `pack_uv_per_material(handle, uv_layer, resolution)`, `get_uv_stats(handle, uv_layer)` → islands/coverage/overlap/texel density, `world_to_uv(handle, point, uv_layer)` |
-| Transform | `transform_mesh(handle, transform)`, `translate_mesh`, `rotate_mesh`, `scale_mesh`, `recenter_mesh(handle, "Bounds|Base")` |
-| Assets | `save_mesh_to_static_mesh(handle, path, replace_existing, enable_collision, enable_nanite)`, `save_mesh_to_skeletal_mesh(handle, path, skeleton_path="")` ("" creates `<path>_Skeleton` from the mesh bones), `set_asset_materials(asset_path, "/Game/M_A,/Game/M_B")`, `transfer_bone_weights(handle, source_skeletal_mesh_path)`, `smooth_bone_weights(handle, skeleton_path)`, `prune_bone_weights(handle, "bone,bone")`, `scale_bone_weights(handle, sel, "bone,bone", scale, receiver_bone="")` (regional weight repair; freed weight -> receiver or strongest other influence), `smooth_selection_bone_weights(handle, sel, iterations=3, alpha=0.5)` (feather weight seams), `inspect_bone_weights(handle, sel="")` (per-bone verts/avg/max, weight sums, max influences), `create_bones(handle, [ModelingBoneDef(name, parent_name, transform)])`, `bind_selection_to_bone(handle, sel, bone, weight=1)`, `list_bones(handle)` → per-bone vertex counts, `generate_collision(asset_path, "MinVolumeShapes|ConvexHulls|AlignedBoxes|OrientedBoxes|MinimalSpheres|Capsules|SweptHulls", max_hulls)`, `set_lods(asset_path, [percent_triangles...])`, `bake_textures(target_handle, source_handle, "TangentNormal,AmbientOcclusion,Curvature,ObjectNormal,Position,VertexColor,MaterialID,UVShell,Height", resolution, out_folder, base_name)`, `bake_texture_transfer(target, source, "T_A,T_B", resolution, out_folder, base_name)`, `import_texture(file, asset_path, srgb, "Default|Normalmap|Masks|Grayscale|HDR")`, `create_noise_texture(asset_path, w, h, cells, octaves)`, `draw_on_texture(asset_path, "Line|Dots|Rect|Fill", uv_points, color, thickness_px, spacing_px)`, `spawn_static_mesh_actor(asset_path, transform, label)`; `load_mesh_from_actor` also reads skeletal / dynamic mesh actors |
+| Session | `create_mesh`, `release_mesh`, `release_all_meshes`, `list_meshes`, `get_dynamic_mesh` (Python only), `set_selection`, `clear_selections` |
+| Primitives with material IDs | `append_torus`, `append_revolve_polygon` |
+| Rigging | `create_bones`, `bind_selection_to_bone`, `select_by_bone_weight`, `scale_bone_weights`, `smooth_selection_bone_weights`, `inspect_bone_weights` |
+| Assets | `save_mesh_to_skeletal_mesh` (empty skeleton path creates `<AssetPath>_Skeleton`), `set_asset_materials` (adds missing slots) |
+| UV and texture | `get_uv_stats`, `create_noise_texture`, `draw_on_texture` |
+| Detail | `append_mesh_along_polyline`, `cut_groove_along_polyline` |
 
-## GeometryScript coverage
+Check `FModelingResult.success` and `.message`; other methods return counts, booleans, arrays, or
+`FModelingUVStats`. `set_selection` returns the count or -1. `release_all_meshes` affects other
+users of the session too: prefer individual release unless the whole session is yours.
 
-ModelingService wraps ~115 of GeometryScript's 622 functions — every operator behind a Modeling
-Mode tool plus the asset plumbing. What it deliberately does not wrap, and how to reach it:
+## Bridge native selections to rigging
 
-| Not wrapped | Why | Reach it with |
-|---|---|---|
-| `GeometryScript_List*`, `VectorMath`, `Transform`, `Box`, `OrientedBox`, `Ray`, `SimplePolygon`, `PolyPath`, `PolygonList`, `PointSetSampling` | Pure math / container helpers, not editor operations | Call directly — they take plain values |
-| `MeshWeightMap`, `MeshSculptLayers`, `MeshGeodesic`, `TextureMap`, `VolumeTextureBake`, `EditorTextureMap` | Niche; would double the API for rare use | `mesh = svc.get_dynamic_mesh(handle)` then e.g. `unreal.GeometryScript_MeshGeodesics.create_surface_path(mesh, ...)` |
-| Per-function option structs (remesh smoothing type, bake bit depth, XAtlas iterations, ...) | The wrappers fix sensible defaults | Same trick — the handle's `UDynamicMesh` is the live object; GeometryScript calls edit it in place and the next `svc.*` call sees the result |
-
-Discover any of them with `discover_python_class('unreal.GeometryScript_<Library>')`.
-
-Exact signatures: `discover_python_class('unreal.ModelingService')`. The long tail — anything not
-here — is reachable directly: the mesh behind a handle is `svc.get_dynamic_mesh(handle)`, which you
-can pass to any `unreal.GeometryScript_*` library function in the same script.
-
-## Critical rules
-
-- **Units are centimeters, +Z up, origin at the base by default** for `append_box`/`append_cylinder`
-  (`origin="Center"` to change). A 100 cm crate at `Transform()` sits on the floor.
-- **`unreal.Rotator(a, b, c)` is `(roll, pitch, yaw)`** — not the C++ `FRotator(Pitch, Yaw, Roll)`
-  order. Passing a yaw positionally silently *pitches* the part instead of turning it, and nothing
-  errors: a mug handle comes out as a horizontal donut, a sofa spawns upside down, a light aims at
-  the sky. **Always pass by keyword** — `unreal.Rotator(roll=0, pitch=0, yaw=90)` — and confirm with
-  `get_mesh_info` bounds (a flipped part shows negative Z) or by reading `.roll/.pitch/.yaw` back.
-- **Laying a cylinder/cone/capsule on an axis: `pitch=-90` gives +X, `pitch=+90` gives −X.** These
-  primitives are built along local +Z from their base, and the intuitive `pitch=90` sends them
-  *backwards* — a windmill's windshaft and hub grew back into the roof instead of out to the sails,
-  which only showed up as an unexpected `bounds_max.x`. `roll=-90` gives +Y, `roll=+90` gives −Y.
-  Check `get_mesh_info` bounds after the first one and reuse whatever proved correct.
-- **Low-step primitives are polygons, and their flats sit inside the nominal radius.** A torus or
-  cylinder with `steps=8` has radius `R` only at its corners and `R·cos(π/8) = 0.92·R` at the middle
-  of each face. Parts placed at radius `R` between corners therefore miss it entirely: an octagonal
-  gallery deck left its railing posts hanging in the air, connected to nothing. Either raise the step
-  count until the difference is under your part's thickness (24 steps → 0.9% error), or place the
-  parts at the corner angles.
-- **Booleans want closed meshes.** Run `get_mesh_info` — `is_closed` false or `open_border_edges > 0`
-  means fill holes / weld first, or the boolean produces flaps. `self_union` cleans up kitbash overlaps.
-- **Selections go stale when topology changes.** After boolean, remesh, bevel, subdivide, etc.
-  re-run the `select_*` call before using the name again; the service refuses a selection made
-  before the mesh changed (`success: false`, "stale") rather than acting on wrong triangles.
-  `extrude_faces`, `offset_faces`, `inset_faces` and `outset_faces` are the exception: the selection
-  they used then holds the faces they moved (an inset's inner panel), so inset → extrude chains.
-- **Order for a clean asset:** model → `repair` → `recompute_normals` → `auto_uv` → `save` →
-  `generate_collision` → `set_lods`. UVs before save, collision and LODs after (they act on the asset).
-- **`save_mesh_to_static_mesh` replaces LOD0 of an existing asset** when `replace_existing` is true;
-  its materials are kept. Existing collision/LODs on that asset are not touched — regenerate them if
-  the silhouette changed.
-- **Log for rollback:** `print("CREATED:", path)` after each save; there is no undo for handle ops
-  (they are in memory), but assets go through the editor and `TransactionService` checkpoints apply.
-- **Verify with evidence.** `get_mesh_info` after each stage (triangle/vertex counts, bounds, closed),
-  and a viewport capture once it is in the level.
-- **Swept surfaces can come out inside-out.** After `append_sweep_polyline` + `fill_holes`, check
-  `get_mesh_info(h).volume`; a negative volume means the normals face inward and `self_union` /
-  `boolean` will silently discard the part as negative space. Call `flip_normals(h)` first. Sweep
-  frame semantics: with frame rotation yaw 90 the profile's X runs along world -X from the frame
-  position and its Y along world Z; put the profile scale (e.g. a wing chord) in the frame's Scale.
-- **XAtlas needs a compact mesh.** `fill_holes` and boolean cuts leave id gaps; `auto_uv` compacts
-  automatically from 2.2, older builds need `unreal.GeometryScript_MeshRepair.compact_mesh(svc.get_dynamic_mesh(h))` first.
-- **Budget triangles.** Voxel ops and PN tessellation explode counts; follow them with
-  `simplify_to_triangle_count`. Keep props under ~20k tris unless Nanite is on.
-- **Don't boolean two surfaces that nearly coincide.** A coffee disc unioned at the exact radius of
-  the mug's inner wall produced slivers and 214 open border edges. Either leave a clear margin
-  (~2% of the feature size) or skip the boolean: appending the part into the same handle as its own
-  nested closed component is valid for a StaticMesh and is what you want for liquid in a vessel,
-  glass in a frame, or anything that never needs to be one watertight shell.
-- **`repair()` can open a closed mesh.** Collapsing degenerates leaves holes. It now re-closes a
-  mesh that arrived watertight (`keep_closed=True` by default) — pass `False` for the raw result —
-  but always re-check `is_closed` before a boolean or voxel op.
-
-## Common mistakes
-
-- Calling `extrude_faces` with `""` (whole mesh) — that shells the whole object outward. Select faces first.
-- Forgetting `auto_uv` before `bake_textures` or before saving a mesh that will take a textured material.
-- `set_lods` with `[1.0]` only — that removes extra LODs. Give one entry per LOD, LOD0 first.
-- Loading a mesh from an actor and saving back to a *new* path, then wondering why the level didn't change — spawn or reassign the actor's mesh.
-- **Passing `material_id` positionally.** These wrappers have long tails of optional arguments
-  (`append_stairs(handle, transform, step_width, step_height, step_depth, num_steps, floating, material_id)`),
-  so one missing argument silently feeds your material id to `floating`. Pass the tail by keyword:
-  `svc.append_stairs(h, T(), step_width=40, step_height=10, step_depth=20, num_steps=4, material_id=7)`.
-- Assuming a rotation worked because the call returned `success`. Nothing here validates orientation —
-  check `get_mesh_info` bounds, then look at it.
-
-## Material slots
-
-A mesh carries **material IDs**; the saved asset carries **material slots**, one per distinct ID in
-ascending order. So the workflow is: give each part its id as you append it, then point the slots at
-real materials after saving.
+Build a `GeometryScriptMeshSelection` with a native selection function, then store it on the same
+handle using `set_selection(handle, name, selection)`. `""` means the whole mesh for rigging
+methods accepting a selection name. Rebuild selections after topology changes; element IDs can
+be invalid or refer to different geometry. Do not assume IDs still denote the intended region.
 
 ```python
-svc.append_revolve_polygon(h, T(), cup_profile, 0, 48, 360, 0)          # id 0 = ceramic
-svc.append_cylinder(h, T(V(0,0,6.6)), 3.7, 1.2, 48, 0, True, "Base", 1) # id 1 = coffee
-print(svc.get_mesh_info(h).material_ids)                                # -> [0, 1]  ALWAYS check
-svc.save_mesh_to_static_mesh(h, "/Game/Props/SM_Mug", True, True)
-svc.set_asset_materials("/Game/Props/SM_Mug", "/Game/M_Ceramic,/Game/M_Coffee")
+# dm and h refer to the same session mesh; the mesh already has geometry.
+outputs = unreal.GeometryScript_MeshSelection.create_select_all_mesh_selection(dm)
+selection = next(x for x in outputs if isinstance(x, unreal.GeometryScriptMeshSelection))
+assert svc.set_selection(h, "all", selection) > 0
+root = unreal.ModelingBoneDef(name="root")
+r = svc.create_bones(h, [root])
+assert r.success, r.message
+r = svc.bind_selection_to_bone(h, "all", "root", 1.0)
+assert r.success, r.message
+print(svc.inspect_bone_weights(h, "all").message)
 ```
 
-- `get_mesh_info(h).material_ids` is the check that a part actually took its id — do it before saving,
-  not after wondering why the asset has one slot.
-- A part built in **another handle** keeps its ids through `append_mesh`, so either way works.
-- To give an id to something already merged in, select it and set it:
-  `svc.select_connected(h, "shade", point_on_it)` then `svc.set_material_id(h, "shade", 1)`.
-- Without `set_asset_materials` every slot renders as the default grey — a mesh with correct ids
-  still looks untextured in the viewport.
+For moving parts, build separate connected solids, verify component counts and select the desired
+piece natively before storing it. `create_bones` takes root first; parents must precede children,
+and bone transforms are in mesh space. Point a hinge bone's X axis along the hinge. For weight
+repair `select_by_bone_weight` selects the territory bones actually drag; `scale_bone_weights`
+redistributes freed weight to a named receiver or the strongest other influence, skipping vertices
+bound only to the targeted bones if no receiver is named. Smooth the seam, inspect weight sums,
+and test a deformed pose before saving. `clear_selections` drops named selections.
 
-## Return types
+## Rules that save a rebuild
 
-- `FModelingResult`: `success`, `message`, `handle`, `triangle_count`, `vertex_count`, `asset_path`.
-- `FModelingMeshInfo` (`get_mesh_info`): `handle`, `triangle_count`, `vertex_count`, `is_closed`, `open_border_edges`, `connected_components`, `bounds_min`, `bounds_max`, `surface_area`, `volume`, `num_uv_layers`, `has_vertex_colors`, `material_ids`.
-- `FModelingSplitResult` (`split_by_components`): `success`, `handles`.
+- Units are centimeters, +Z up. Primitive origin options matter: confirm bounds and floor position.
+- Python `unreal.Rotator` positional order is roll, pitch, yaw, unlike C++; use keyword arguments.
+  For +Z primitives, pitch -90 points along +X and roll -90 along +Y. Verify bounds and a capture.
+- Low-step cylinder/torus flats lie inside the nominal radius: account for this when placing rails,
+  posts and other attachments.
+- Booleans and voxel operations need closed solids. Check closedness and signed volume on **each**
+  component before assembly: inward components may be discarded as negative space by self-union.
+  Reverse triangle orientation, not just shading normals, if necessary. Nearly coincident surfaces
+  produce slivers; use clearance or retain nested closed components instead of forcing a union.
+- For loft-like native sweeps, the profile lies in each frame's local YZ plane: frame scale Y scales
+  profile X and scale Z scales profile Y. Test a simple section and verify bounds. A polyline sweep's
+  `bLoop` closes the path, not the profile. Native sweeps do not inherit the old wrapper's automatic
+  cap/outward guarantees; explicitly check caps, closedness and orientation.
+- Booleans and hole filling can leave ID gaps: compact before XAtlas. Repair can open a mesh; check
+  closedness again, especially before boolean/voxel work. Recreate selections after topology edits.
+- Check unwraps with `get_uv_stats`: zero unset triangles and near-zero overlap unless deliberate.
+  Conformal unwraps can fold on cylindrical islands; XAtlas or suitable projection can be safer.
+  Vertex-color masks smear across large triangles; use per-pixel logic or a densely tessellated copy.
+- Build detail on a copy before baking. Big bakes can outlast a tool timeout: log and inspect actual
+  results before retrying, rather than accidentally launching a duplicate bake.
+- Verify material IDs before asset creation, then assign real slots; `set_asset_materials` can add
+  missing slots. Verify the asset, collision, LODs and references after saving. Changing geometry
+  may require rebuilding collision and LODs. Obtain permission before overwriting existing assets.
+- A successful call is not visual proof. Check bounds, counts, topology and a viewport capture;
+  a new level may need lighting. Keep the original asset and a recovery point for destructive edits.
 
-## Lofted solids (wings, fins, hulls)
-
-`append_loft(h, transform, profile, frames, material_id)` sweeps a **closed** 2D profile through a list of
-frames, caps both ends, and guarantees an outward-facing closed solid (it checks the enclosed volume and
-flips when the sweep came out inside-out). Frame semantics:
-
-- The profile lies in each frame's local **YZ** plane: profile X runs along the frame's Y axis, profile Y
-  along its Z axis.
-- The frame's **scale** multiplies the profile, axis for axis: **scale.Y scales profile X, scale.Z scales
-  profile Y** (scale.X does nothing). So with identity-rotation frames marching along world X, a frame
-  scale of `(1, half_width, half_height)` gives you a section that many cm wide and tall — which makes a
-  hull or fuselage a table of `(x, z, half_width, half_height)` rows and nothing else:
-  ```python
-  prof = [V2(-1,-0.9), V2(-0.55,-1), V2(0.55,-1), V2(1,-0.9), V2(1,0.72), V2(0.6,1), V2(-0.6,1), V2(-1,0.72)]
-  sections = [(-980,200,16,18), (-300,178,50,70), (60,188,64,96), (500,196,54,66), (760,176,14,15)]
-  frames = [T(V(x, 0, z), R(0,0,0), V(1.0, w, h)) for (x, z, w, h) in sections]
-  svc.append_loft(h, T(), prof, frames, 0)
-  ```
-- Frames are positioned along the path; two frames make a straight tapered section.
-- Verify the mapping with a unit square through two frames and read `get_mesh_info` bounds before
-  committing to a complex shape — it costs one call and saves rebuilding a hull.
-
-A wing running out along +Y with its chord toward −X and 6 % thickness:
-
-```python
-airfoil = [unreal.Vector2D(x, y) for x, y in ((0,0),(0.05,0.03),(0.3,0.06),(0.7,0.04),(1,0),(0.7,-0.03),(0.3,-0.04),(0.05,-0.02))]
-frames = [unreal.Transform(unreal.Vector(880, 100, 0), unreal.Rotator(0, 0, 90), unreal.Vector(480, 480, 480)),   # root: LE at x=880, chord 480
-          unreal.Transform(unreal.Vector(600, 640, 0), unreal.Rotator(0, 0, 90), unreal.Vector(160, 160, 160))]   # tip
-svc.append_loft(h, unreal.Transform(), airfoil, frames, 0)
-```
-
-`ensure_outward(h)` does the same volume check on any closed part you built another way (revolves, raw
-sweeps) — run it before `self_union`, which silently discards inside-out parts as negative space.
-Apply this to each separate part before appending it to an assembly, especially after reflecting
-polygon coordinates. The assembly's total signed volume can be positive while a smaller component
-is still inside-out; a single check on the combined handle will miss that component.
-
-## Rigging control surfaces (rudders, flaps, canopies, turrets)
-
-Bones and skin weights are authored straight on the session mesh; saving with an empty skeleton path
-creates the Skeleton asset for you.
-
-**Plan the components before you model.** `select_connected` is the only selection that grabs a moving
-part exactly, so build each part that will get its own bone in its **own handle**, `self_union` it
-there, and only then `append_mesh` it into the assembly. Appending never welds parts together, so the
-result is one mesh whose pieces are still separately selectable — no cutting required:
-
-```python
-tower = svc.create_mesh().handle; ...; svc.self_union(tower)   # stays on the root bone
-cap   = svc.create_mesh().handle; ...; svc.self_union(cap)     # will yaw
-sails = svc.create_mesh().handle; ...; svc.self_union(sails)   # will spin
-h = svc.create_mesh().handle
-for part in (tower, cap, sails):
-    svc.append_mesh(h, part, unreal.Transform()); svc.release_mesh(part)
-assert svc.get_mesh_info(h).connected_components == 3           # check before rigging
-```
-
-Check `connected_components` matches the number of pieces you expect *before* rigging — a piece that
-merged into its neighbour, or split into two, is far cheaper to fix now than after binding. Parts that
-merely touch do **not** union: overlap them by a few cm, or they stay separate and a "solid" assembly
-comes apart. A box selection is the fallback when two pieces genuinely are one component, but it will
-also catch anything else inside the box (a shaft passing through a hub), and those stray triangles
-tear when the bone moves.
-
-1. **Isolate each moving piece** as its own connected component — either built separately as above, or
-   cut free with a through-slot along the hinge line and at both ends (`boolean` Subtract with thin boxes).
-2. **Grab it** with `select_connected(h, "flap_L", point_on_the_flap)` — no radius to tune, it takes the
-   whole piece nearest the point. `selection_bounds` then gives you the hinge line (the piece's forward edge).
-3. **Define the hierarchy** with `create_bones(h, [ModelingBoneDef, ...])`: the first bone is the root,
-   every other one names a parent listed earlier. Transforms are in mesh space; point each bone's **X
-   axis along its hinge** so the surface deflects by rolling the bone (a swept hinge just needs the
-   right yaw). Everything starts bound to the root.
-4. **Bind** each piece: `bind_selection_to_bone(h, "flap_L", "flap_L", 1.0)`.
-5. **Verify** with `list_bones(h)` — every control bone should report the vertex count of its piece and
-   the root the rest; a bone with 0 vertices means the selection missed.
-6. **Save**: `save_mesh_to_skeletal_mesh(h, "/Game/Vehicles/SK_Jet", "", True, True)` creates
-   `SK_Jet` plus `SK_Jet_Skeleton`; then `set_asset_materials("/Game/Vehicles/SK_Jet", "/Game/M_Paint,/Game/M_Glass")`
-   fills the material slots (one slot per material ID).
-
-```python
-B = unreal.ModelingBoneDef
-hinge_yaw = 0.0   # yaw of the hinge line in the XY plane
-svc.create_bones(h, [
-    B(name="root"),
-    B(name="flap_L", parent_name="root", transform=unreal.Transform(unreal.Vector(534, 100, 0), unreal.Rotator(0, 0, 90 + hinge_yaw), unreal.Vector(1, 1, 1))),
-])
-```
-
-Animate the result like any skeletal mesh — an AnimSequence keyed on the control bones (see the
-`animation` skill), a Control Rig, or `SetBoneRotationByName` on a PoseableMeshComponent for a quick
-check in a level.
-
-For continuous or variable-driven motion (a rotor, a windmill sail, a turret) the usual answer is an
-**Anim Blueprint driving the bone directly**, with no animation asset at all: Local Space Ref Pose →
-Local To Component → one Modify Bone per control bone → Component To Local → Output, and an
-EventGraph that accumulates the angle on `Event Blueprint Update Animation`. If VibeUE is installed,
-its `animation-blueprint` skill has the whole recipe, including the trap that a Modify Bone node
-ignores its Rotation pin until you set `rotation_mode` to additive in component space.
-
-## Repairing skin weights (clothing that follows the wrong bone)
-
-The classic failure on a transferred garment: a collar rides up with the head, a hem is glued to
-one thigh. The cause is weight on bones that shouldn't own the region, and the fix is four calls —
-no Blender round-trip:
-
-```python
-h = svc.load_mesh_from_skeletal_mesh("/Game/.../SK_Jacket").handle
-n = svc.select_by_bone_weight(h, "collar", "head,neck_02", 0.15)   # the vertices those bones drag
-print(svc.selection_bounds(h, "collar"))                           # sanity: is this really the collar?
-svc.scale_bone_weights(h, "collar", "head,neck_02", 0.25, "spine_05")  # keep 25%, rest -> spine_05
-svc.smooth_selection_bone_weights(h, "collar", 3, 0.5)             # feather the seam
-print(svc.inspect_bone_weights(h, "collar").message)               # per-bone verts/avg/max + sums
-svc.save_mesh_to_skeletal_mesh(h, "/Game/.../SK_Jacket", "<its skeleton path>")
-```
-
-- `select_by_bone_weight` builds the region from the weights themselves — more reliable than a box
-  when the garment's geometry is irregular. Intersect with `select_in_box` output via
-  `expand_contract_selection`/`invert_selection` when only part of a bone's territory is wrong.
-- `scale_bone_weights(h, sel, bones, scale, receiver)`: scale 0 removes the influence; with no
-  receiver the freed weight goes to each vertex's strongest other influence. Vertices bound *only*
-  to the listed bones are skipped unless a receiver is named — read the message.
-- `smooth_selection_bone_weights` is a Laplacian pass over the selection: run it whenever a repair
-  or a rigid `bind_selection_to_bone` leaves a visible cliff at the boundary.
-- `inspect_bone_weights(h, sel="")` is the audit: influencing bones, per-bone average/max, weight
-  sums (should be 1.0 ± quantization), max influences. Check it before saving, and verify the pose
-  in the animation skill afterwards — bad weights are invisible in the ref pose.
-
-## Texturing pipeline (UVs you control, masks you can make, pixels you can draw)
-
-Auto-unwraps (`auto_uv`) are fine for baking AO, useless for markings: hundreds of seams and uneven
-texel density. For anything an artist would paint, build the islands yourself and verify them.
-
-1. **Define islands.** Assign a polygroup per panel/region: `compute_polygroups(h, "Angle", 30)` for
-   hard-surface parts, then override with selections — `select_in_box` / `select_by_normal_angle` /
-   `select_connected` + `set_polygroup(h, sel, -1)` (a new group) so a wing top, a fuselage side or a
-   whole rudder is one island.
-2. **Unwrap** each island conformally: `recompute_uvs(h, 0, "Polygroups", "SpectralConformal")`. Big
-   round shapes (fuselage) can instead take `project_uv(h, "Cylinder", transform, 0, sel)`.
-3. **Pack** — `layout_uv(h, 0, "Repack", "", 4096)` for one texture set, or
-   `pack_uv_per_material(h, 0, 4096)` so every material slot (fuselage / wings / details) fills its own
-   0–1 range and gets its own 4K.
-4. **Verify** with `get_uv_stats(h)`: islands, coverage, `overlap_fraction` (must be ~0 unless you
-   packed per material), `num_unset_triangles` (must be 0) and `texels_per_cm_at_1k`. Fix before
-   baking. `world_to_uv(h, point)` tells you where a spot on the mesh lands on the texture.
-5. **Masks without painting.** Select regions on the mesh, `set_vertex_color(h, sel, color)` per
-   channel (R walkways, G stripes, B dirt…) and bake with `bake_textures(h, h, "VertexColor", …)`.
-   `"MaterialID"` bakes a per-slot mask for free; `"UVShell"` draws the island outlines — panel lines
-   when islands are panels; `"Height"` and the normals/AO/curvature bakes remain.
-6. **Pixels.** `create_noise_texture(path, 2048, 2048, cells, octaves)` for tileable grunge/wear;
-   `draw_on_texture(path, "Line|Dots|Rect|Fill", uv_points, color, thickness_px, spacing_px)` to draw
-   rivet rows, stripes and blocks straight into an 8-bit texture in UV space (use `world_to_uv` to
-   place them); `import_texture(file, path, srgb, "Default|Normalmap|Masks|Grayscale")` for anything
-   made elsewhere (a PolyHaven PBR set downloaded with `urllib` in the same Python script works).
-   `bake_texture_transfer(target, source, "T_A,T_B", …)` re-projects textures from one unwrap onto
-   another (after re-unwrapping, or from a detail mesh).
-7. **Geometry detail for normal maps.** Build it on a copy: `append_mesh_along_polyline(h, rivet, points,
-   spacing)` for fastener rows, `append_mesh_at_transforms(h, bolt, sample_surface_points(...))` for
-   scatter, `cut_groove_along_polyline(h, points, width, depth)` for recessed panel lines — then
-   `bake_textures(game_mesh, detail_mesh, "TangentNormal,AmbientOcclusion", 4096, …)`.
-
-Crisp markings (roundels, numbers) are still best as decals: `set_num_uv_layers(h, 2)` +
-`project_uv(h, "Planar", transform, 1, sel)` gives a clamped UV1 the material samples a decal through.
+For actual logo geometry see [modeled-lettering.md](modeled-lettering.md); for capture and delivery
+see [showcase-and-delivery.md](showcase-and-delivery.md). Both are registered as agent sub-docs.

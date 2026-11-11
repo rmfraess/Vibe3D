@@ -6,8 +6,8 @@ description: Light modeled assets, capture reliable high-resolution Unreal scree
 
 ## Studio and capture
 
-These behaviors were observed with native Unreal MCP in UE 5.8; discover signatures on a different
-build rather than assuming viewport helpers are interchangeable.
+These capture behaviors were observed in UE 5.8; discover the actual UE 5.9 tool signatures
+and verify rendering rather than assuming viewport helpers are interchangeable.
 
 - Use a dedicated showcase map, preserving unsaved work before switching levels. Movable RectLights,
   a floor, and fixed exposure in an unbound PostProcessVolume can produce a complete dark studio.
@@ -24,7 +24,8 @@ build rather than assuming viewport helpers are interchangeable.
   `set_level_viewport_fov(fov, viewport_key)`. The similarly named UnrealEditorSubsystem camera
   setter uses only location and rotation. Use `MathLibrary.find_look_at_rotation` for framing.
 - Enable game view to hide editor overlays. A background viewport did not reliably advance on a
-  `HighResShot` command alone: native MCP `capture_image` with `source="editor"` triggered the draw.
+  `HighResShot` command alone: an editor viewport capture triggered the draw. In 5.9 use the native
+  `SceneCaptureToolset.CaptureActiveEditorView` / `CaptureEditorViewport` tools.
   Capture once after camera changes, allow lighting to settle, issue the high-resolution command,
   then capture again. Poll for a newly written nonempty output with a bounded timeout; an existing
   file from a prior run is not proof this shot succeeded. Prefer unique filenames per attempt.
@@ -36,7 +37,7 @@ unreal.SystemLibrary.execute_console_command(
     None, 'HighResShot 3840x2160 filename="E:/Exports/Hero_attempt_01.png"')
 ```
 
-Follow with the available native MCP `capture_image` tool outside that Python call. A small tool
+Follow with an available native editor viewport capture tool outside that Python call. A small tool
 preview can trigger the draw; it is the separately written HighResShot file that is the deliverable.
 Avoid toggling viewport realtime as a retry strategy; it caused an ensure in this session.
 
