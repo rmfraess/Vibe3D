@@ -137,6 +137,13 @@ and test a deformed pose before saving. `clear_selections` drops named selection
   component before assembly: inward components may be discarded as negative space by self-union.
   Reverse triangle orientation, not just shading normals, if necessary. Nearly coincident surfaces
   produce slivers; use clearance or retain nested closed components instead of forcing a union.
+- Hand-built triangles: Unreal treats clockwise-from-above (in XY) as front-facing, so a triangle
+  with a positive mathematical XY cross product faces DOWN; its collision only hits from below
+  (verified 5.9). After saving, trace top-down on the placed component and require a hit with
+  positive normal Z; if only underside traces hit, reverse just the triangles you appended.
+- Collision-flag edits on a static mesh's body setup made from Python may not reach existing
+  components until the asset and map are saved and reopened (seen in 5.9). Trust traces after a
+  reopen, not the flag readback.
 - For loft-like native sweeps, the profile lies in each frame's local YZ plane: frame scale Y scales
   profile X and scale Z scales profile Y. Test a simple section and verify bounds. A polyline sweep's
   `bLoop` closes the path, not the profile. Native sweeps do not inherit the old wrapper's automatic
