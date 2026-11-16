@@ -71,5 +71,4 @@ existing assets when authorized; inspect the saved result, collision, LODs and r
 - Vertex-color masks smear across large triangles; use per-pixel material logic or a densely
   tessellated copy. Large bakes may outlast a timeout: inspect actual results before retrying.
 - Tests: `Automation RunTests Vibe3D.Modeling`; `Skills/modeling/scripts/exercise_all.txt`
-  exercises the fork's original tools and prints `RESULT: PASS`; the automation tests cover the skeletal LOD,
-  garment-fit, accessory and intake tools.
+  exercises every service tool and prints `RESULT: PASS` (the posed read runs only on an unsaved /Temp level).

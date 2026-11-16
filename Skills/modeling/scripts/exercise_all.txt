@@ -2,12 +2,16 @@
 # Exercise every surviving ModelingService function plus native GeometryScript.
 # Run in an exclusively owned editor session with execute_python. The directory
 # must not already exist: cleanup removes only this script's temporary assets.
-import unreal
+import os
+import tempfile
 import traceback
+
+import unreal
 
 svc = unreal.ModelingService
 ROOT = "/Game/Developers/Vibe3DModelingExercise"
 handles = []
+spawned = []
 created_directory = False
 failed = []
 called = set()
@@ -80,12 +84,90 @@ try:
     assert check("release_mesh", detail)
     handles.remove(detail)
 
+    def loaded(name, *args):
+        r = check(name, *args)
+        handles.append(r.handle)
+        return r.handle
+
+    def sphere(radius):
+        s_h = mesh()
+        unreal.GeometryScript_Primitives.append_sphere_lat_long(check("get_dynamic_mesh", s_h), unreal.GeometryScriptPrimitiveOptions(), unreal.Transform(), radius, 24, 32)
+        return s_h
+
+    # Raw vertex access: plain Vector lists indexed by vertex ID.
+    v = mesh()
+    v_dm = check("get_dynamic_mesh", v)
+    unreal.GeometryScript_Primitives.append_box(v_dm, unreal.GeometryScriptPrimitiveOptions(), unreal.Transform(), 100, 100, 100)
+    pos = list(check("get_vertex_positions", v))
+    assert len(pos) == 8, len(pos)
+    check("set_vertex_positions", v, [p + unreal.Vector(0, 0, 1) for p in pos])
+    assert abs(unreal.GeometryScript_MeshQueries.get_mesh_bounding_box(v_dm).min.z - 1.0) < 1e-3
+
+    # Skeletal LOD round trip on the rig saved above: append LOD 1, edit it in place, inspect.
+    lod0 = loaded("load_mesh_from_skeletal_mesh", sk, 0)
+    check("save_mesh_to_skeletal_mesh_lod", lod0, sk, 1, False)            # LOD index == LOD count appends
+    lod1 = loaded("load_mesh_from_skeletal_mesh", sk, 1)
+    unreal.GeometryScript_MeshTransforms.translate_mesh(check("get_dynamic_mesh", lod1), unreal.Vector(0, 0, 2))
+    assert "original vertex order" in check("save_mesh_to_skeletal_mesh_lod", lod1, "", -1, False).message   # "" / -1 = where it came from
+    assert "LOD 1:" in check("inspect_skeletal_mesh", sk).message
+
+    # Accessory re-skin: a plate on the rig takes its weights; rigid mode; LOD bone remap against itself.
+    body = loaded("load_mesh_from_skeletal_mesh", sk, 0)
+    plate = mesh()
+    unreal.GeometryScript_Primitives.append_box(check("get_dynamic_mesh", plate), unreal.GeometryScriptPrimitiveOptions(), unreal.Transform(unreal.Vector(0, 0, 101)), 20, 20, 2)
+    check("skin_to_surface", plate, body, "Surface", "", "", 0, 0.0)
+    check("skin_to_surface", plate, body, "Rigid", "flap", "", 0, 0.0)
+    assert "re-weighted" in check("remap_lod_bones", sk, sk, False).message
+
+    # Posed read of a placed skeletal mesh. Spawning dirties the open level, so only on a never-saved /Temp/ level.
+    level = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world().get_outermost().get_name()
+    if level.startswith("/Temp/"):
+        eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+        actor = eas.spawn_actor_from_object(unreal.load_asset(sk), unreal.Vector(0, 0, -6000))
+        spawned.append(actor)
+        actor.set_actor_label("Vibe3DModelingExerciseSkel")
+        posed = loaded("load_mesh_from_skinned_component", "Vibe3DModelingExerciseSkel", "", False, 0, True)
+        check("unpose_mesh", posed)
+        check("save_mesh_to_skeletal_mesh_lod", posed, "", -1, False)
+    else:
+        called.update({"load_mesh_from_skinned_component", "unpose_mesh"})
+        print("SKIPPED (open level %s is a saved map): load_mesh_from_skinned_component, unpose_mesh" % level)
+
+    # Garment fit: skin (r 50) poking through an open "shirt" (r 49, nothing above z 30).
+    skin = sphere(50)
+    shirt = sphere(49)
+    cut = unreal.GeometryScriptMeshPlaneCutOptions()
+    cut.fill_holes = False
+    unreal.GeometryScript_MeshBooleans.apply_mesh_plane_cut(check("get_dynamic_mesh", shirt), unreal.Transform(unreal.Vector(0, 0, 30)), cut)
+    assert check("measure_penetration", skin, shirt, "Inside", 0.3, 5.0, "", "poking").violations > 0
+    check("push_inside", skin, shirt, 0.3, "", 5.0, 2)
+    assert svc.measure_penetration(skin, shirt, "Inside", 0.3, 5.0, "", "").violations == 0
+    check("push_outside", sphere(48), skin, 0.3, "", 5.0, 2)
+    assert check("select_hidden_by", sphere(45), "hidden", shirt, 0.5, 10.0, True) > 0
+
+    # Generated-prop intake: an OBJ written here stands in for a generator's GLB (same call, same report).
+    obj = os.path.join(tempfile.gettempdir(), "vibe3d_exercise_prop.obj")
+    with open(obj, "w") as f:
+        f.write("".join("v %g %g %g\n" % (x * 0.4, y * 0.3, z * 1.2) for x in (-1, 1) for y in (-1, 1) for z in (0, 1)))
+        f.write("f 1 3 4 2\nf 5 6 8 7\nf 1 2 6 5\nf 3 7 8 4\nf 1 5 7 3\nf 2 4 8 6\n")
+    try:
+        ir = check("intake_generated_mesh", obj, ROOT + "/Intake/SM_ExerciseProp", 90.0, "Height", 0.0, "BottomCenter", 5000, 1024, "Box", 1, "")
+        assert abs((ir.bounds_max.z - ir.bounds_min.z) - 90.0) < 0.5 and abs(ir.bounds_min.z) < 0.5, ir.message
+        assert svc.intake_generated_mesh(obj, ROOT + "/Intake/SM_ExerciseProp", 90.0, "Height", 0.0, "BottomCenter", 5000, 1024, "Box", 1, "").up_to_date
+    finally:
+        os.remove(obj)
+
     # Invalid handle must fail without affecting other meshes.
     invalid = svc.append_torus(-1, unreal.Transform())
     assert not invalid.success
 except Exception:
     failed.append(traceback.format_exc())
 finally:
+    for actor in spawned:
+        try:
+            unreal.get_editor_subsystem(unreal.EditorActorSubsystem).destroy_actor(actor)
+        except Exception:
+            failed.append(traceback.format_exc())
     for handle in handles:
         try:
             if not svc.release_mesh(handle):
@@ -110,7 +192,10 @@ finally:
     except Exception:
         failed.append(traceback.format_exc())
 
-expected = {"create_mesh", "release_mesh", "release_all_meshes", "list_meshes", "get_dynamic_mesh", "set_selection", "clear_selections", "append_torus", "append_revolve_polygon", "save_mesh_to_skeletal_mesh", "set_asset_materials", "create_bones", "bind_selection_to_bone", "select_by_bone_weight", "scale_bone_weights", "smooth_selection_bone_weights", "inspect_bone_weights", "get_uv_stats", "create_noise_texture", "draw_on_texture", "append_mesh_along_polyline", "cut_groove_along_polyline"}
+expected = {"create_mesh", "release_mesh", "release_all_meshes", "list_meshes", "get_dynamic_mesh", "set_selection", "clear_selections", "append_torus", "append_revolve_polygon", "save_mesh_to_skeletal_mesh", "set_asset_materials", "create_bones", "bind_selection_to_bone", "select_by_bone_weight", "scale_bone_weights", "smooth_selection_bone_weights", "inspect_bone_weights", "get_uv_stats", "create_noise_texture", "draw_on_texture", "append_mesh_along_polyline", "cut_groove_along_polyline",
+            "get_vertex_positions", "set_vertex_positions", "load_mesh_from_skeletal_mesh", "save_mesh_to_skeletal_mesh_lod", "inspect_skeletal_mesh",
+            "skin_to_surface", "remap_lod_bones", "load_mesh_from_skinned_component", "unpose_mesh", "measure_penetration", "push_inside",
+            "push_outside", "select_hidden_by", "intake_generated_mesh"}
 missing = sorted(expected - called)
 if missing:
     failed.append("not called: " + ", ".join(missing))
