@@ -3,7 +3,7 @@
 # exercise_all.txt — Call EVERY ModelingService function once and report PASS/FAIL, then prove
 # nothing was skipped by diffing against dir(unreal.ModelingService).
 #
-# Sample/verification script for the modeling skill. Run via execute_python_code. It only writes
+# Sample/verification script for the modeling skill. Run via execute_python. It only writes
 # under /Game/Developers/Vibe3DModelingExercise and removes everything it created at the end.
 # Skeletal-mesh calls use the first SkeletalMesh found in the project (skipped when there is none).
 import unreal
@@ -33,6 +33,10 @@ assert info.triangle_count == 12, info.triangle_count
 assert svc.get_dynamic_mesh(h) is not None; CALLED.add("get_dynamic_mesh")
 assert h in list(call("list_meshes"))
 assert call("release_mesh", copy_h)
+pos = list(call("get_vertex_positions", h)); assert len(pos) == 8, len(pos)   # plain Vectors, indexed by vertex ID
+call("set_vertex_positions", h, [p + unreal.Vector(0, 0, 1) for p in pos])
+assert abs(svc.get_mesh_info(h).bounds_min.z - 1.0) < 1e-3
+call("set_vertex_positions", h, pos)
 
 # --- primitives
 p = call("create_mesh").handle
@@ -79,7 +83,7 @@ call("select_by_normal_angle", c, "top", unreal.Vector(0, 0, 1), 5.0)
 call("outset_faces", c, "top", 2.0)
 call("select_by_normal_angle", c, "side", unreal.Vector(1, 0, 0), 5.0)
 call("offset_faces", c, "side", 2.0)
-assert not svc.translate_selection(c, "side", unreal.Vector(1, 0, 0)).success, "stale selection must be refused after offset_faces changed topology"
+assert svc.translate_selection(c, "side", unreal.Vector(0, 0, 0)).success, "offset_faces keeps its selection on the faces it moved (5ed3cb4)"
 call("select_by_normal_angle", c, "side", unreal.Vector(1, 0, 0), 5.0)
 call("translate_selection", c, "side", unreal.Vector(1, 0, 0))
 call("set_material_id", c, "side", 3)
@@ -157,9 +161,21 @@ call("save_mesh_to_static_mesh", c, sm_path, True, True, False, True)   # replac
 lh = call("load_mesh_from_static_mesh", sm_path, 0).handle
 call("generate_collision", sm_path, "ConvexHulls", 2)
 call("set_lods", sm_path, [1.0, 0.5])
-sp_r = call("spawn_static_mesh_actor", sm_path, T(unreal.Vector(0, 0, -5000)), "Vibe3DModelingExerciseActor")
+eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)   # spawn_static_mesh_actor was cut: Epic LevelToolset.AddToSceneFromAsset covers it
+sp_a = eas.spawn_actor_from_object(unreal.load_asset(sm_path), unreal.Vector(0, 0, -5000)); sp_a.set_actor_label("Vibe3DModelingExerciseActor")
 ah = call("load_mesh_from_actor", "Vibe3DModelingExerciseActor", True, 0).handle
 bake = call("bake_textures", u, s, "TangentNormal,AmbientOcclusion", 64, ROOT, "Exercise", 0, 1); assert bake.texture_paths
+
+# --- generated-prop intake (an OBJ written here stands in for a service's GLB: same call, same report)
+import os, tempfile
+obj = os.path.join(tempfile.gettempdir(), "vibe3d_exercise_prop.obj")
+with open(obj, "w") as f:
+    f.write("".join("v %g %g %g\n" % (x * 0.4, y * 0.3, z * 1.2) for x in (-1, 1) for y in (-1, 1) for z in (0, 1)))
+    f.write("f 1 3 4 2\nf 5 6 8 7\nf 1 2 6 5\nf 3 7 8 4\nf 1 5 7 3\nf 2 4 8 6\n")
+ir = call("intake_generated_mesh", obj, ROOT + "/Intake/SM_ExerciseProp", 90.0, "Height", 0.0, "BottomCenter", 5000, 1024, "Box", 1, "")
+assert abs((ir.bounds_max.z - ir.bounds_min.z) - 90.0) < 0.5 and abs(ir.bounds_min.z) < 0.5, ir.message
+assert svc.intake_generated_mesh(obj, ROOT + "/Intake/SM_ExerciseProp", 90.0, "Height", 0.0, "BottomCenter", 5000, 1024, "Box", 1, "").up_to_date
+os.remove(obj)
 
 # --- lofts, orientation, connected pieces
 lf = call("create_mesh").handle
@@ -183,10 +199,46 @@ call("create_bones", rg, [B(name="root"), B(name="flap", parent_name="root", tra
 call("bind_selection_to_bone", rg, "flap", "flap", 1.0)
 bones = call("list_bones", rg)
 assert len(bones) == 2 and bones[1].influenced_vertices == 8, [(str(b.name), b.influenced_vertices) for b in bones]
+# regional weight repair: report, select what a bone drags, hand half of it to root, soften the seam
+call("inspect_bone_weights", rg, "")
+n_flap = call("select_by_bone_weight", rg, "flap_region", "flap", 0.25)
+assert n_flap == 8, "flap should drag exactly the 8 vertices of the small box, got %s" % n_flap
+call("scale_bone_weights", rg, "flap_region", "flap", 0.5, "root")
+call("smooth_selection_bone_weights", rg, "flap_region", 2, 0.5)
 sk_path = ROOT + "/SK_ExerciseRig"
 call("save_mesh_to_skeletal_mesh", rg, sk_path, "", True, False)
 assert unreal.EditorAssetLibrary.does_asset_exist(sk_path + "_Skeleton"), "skeleton should be created next to the mesh"
 call("set_asset_materials", sk_path, "/Engine/BasicShapes/BasicShapeMaterial", False)
+# skeletal LOD round trip: append a LOD, edit it in place, check the asset
+low = call("copy_mesh", rg).handle
+call("save_mesh_to_skeletal_mesh_lod", low, sk_path, 1, False)                  # LOD index == LOD count appends
+lod = call("load_mesh_from_skeletal_mesh", sk_path, 1).handle
+call("translate_mesh", lod, unreal.Vector(0, 0, 2))
+assert "original vertex order" in call("save_mesh_to_skeletal_mesh_lod", lod, "", -1, False).message   # "" / -1 = where it came from
+assert "LOD 1:" in call("inspect_skeletal_mesh", sk_path).message
+# accessory re-skin: a plate on the flap takes the flap's weights; rigid mode; LOD bone remap against a leader
+body = call("load_mesh_from_skeletal_mesh", sk_path, 0).handle
+plate = call("create_mesh").handle; call("append_box", plate, T(unreal.Vector(0, 200, 50)), 20, 20, 2)
+call("skin_to_surface", plate, body, "Surface", "", "", 0, 0.0)
+assert [b.influenced_vertices for b in svc.list_bones(plate) if str(b.name) == "flap"] == [8]
+call("skin_to_surface", plate, body, "Rigid", "flap", "", 0, 0.0)
+assert "re-weighted" in call("remap_lod_bones", sk_path, sk_path, False).message   # against itself: nothing dropped, still a valid report
+# posed read of a placed skeletal mesh (reference pose in the editor world), then back
+ska = eas.spawn_actor_from_object(unreal.load_asset(sk_path), unreal.Vector(0, 0, -6000)); ska.set_actor_label("Vibe3DModelingExerciseSkel")
+ph = call("load_mesh_from_skinned_component", "Vibe3DModelingExerciseSkel", "", False, 0, True).handle
+call("unpose_mesh", ph)
+call("save_mesh_to_skeletal_mesh_lod", ph, "", -1, False)
+
+# --- garment fit: skin (r 50) poking through an open "shirt" (r 49, nothing above z 30)
+skin = call("create_mesh").handle; call("append_sphere", skin, T(), 50, 24, 32)
+shirt = call("create_mesh").handle; call("append_sphere", shirt, T(), 49, 24, 32); call("plane_cut", shirt, T(unreal.Vector(0, 0, 30)), False)
+assert call("measure_penetration", skin, shirt, "Inside", 0.3, 5.0, "", "poking").violations > 0
+call("push_inside", skin, shirt, 0.3, "", 5.0, 2)
+assert svc.measure_penetration(skin, shirt, "Inside", 0.3, 5.0, "", "").violations == 0
+sunk = call("create_mesh").handle; call("append_sphere", sunk, T(), 48, 24, 32)
+call("push_outside", sunk, skin, 0.3, "", 5.0, 2)
+inner = call("create_mesh").handle; call("append_sphere", inner, T(), 45, 24, 32)
+assert call("select_hidden_by", inner, "hidden", shirt, 0.5, 10.0, True) > 0
 
 # --- UV control: polygroup islands, conformal unwrap, packing, verification
 uv = call("create_mesh").handle
@@ -210,7 +262,6 @@ call("create_noise_texture", ROOT + "/T_ExNoise", 64, 64, 4.0, 3, 0.5, 3, False)
 call("draw_on_texture", ROOT + "/T_ExNoise", "Line", [unreal.Vector2D(0.1, 0.1), unreal.Vector2D(0.9, 0.9)], unreal.LinearColor(1, 1, 1, 1), 3.0, 8.0, False)
 call("draw_on_texture", ROOT + "/T_ExNoise", "Dots", [unreal.Vector2D(0.1, 0.9), unreal.Vector2D(0.9, 0.1)], unreal.LinearColor(0, 0, 0, 1), 2.0, 6.0, False)
 xf = call("bake_texture_transfer", uv, uv, ROOT + "/T_ExNoise", 64, ROOT, "UVEx", 0, 0, 1); assert xf.texture_paths, xf.message
-call("import_texture", unreal.Paths.engine_content_dir() + "Slate/Checkerboard.png", ROOT + "/T_ExImported", False, "Masks", False)
 
 # --- surface detail: rivet stamps and a panel-line groove
 rv = call("create_mesh").handle
@@ -236,7 +287,7 @@ else:
 # --- cleanup
 eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 for actor in eas.get_all_level_actors():
-    if actor.get_actor_label() == "Vibe3DModelingExerciseActor":
+    if actor.get_actor_label() in ("Vibe3DModelingExerciseActor", "Vibe3DModelingExerciseSkel"):
         eas.destroy_actor(actor)
 svc.release_all_meshes()
 if unreal.EditorAssetLibrary.does_directory_exist(ROOT):

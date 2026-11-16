@@ -7,9 +7,11 @@ vibe3d_classes:
 unreal_classes:
   - DynamicMesh
   - StaticMesh
-  - GeometryScript_MeshPrimitives
+  - GeometryScript_Primitives
   - GeometryScript_MeshBooleans
-  - GeometryScript_MeshUVs
+  - GeometryScript_UVs
+  - GeometryScript_MeshEdits
+  - GeometryScript_List
   - StaticMeshEditorSubsystem
 keywords:
   - modeling
@@ -47,7 +49,7 @@ here needs a viewport, a gizmo, or Blender.
 
 1. `create_mesh()` / `load_mesh_from_static_mesh(path)` / `load_mesh_from_actor(label)` → a result; check `success`, then use its integer **`.handle`**.
 2. Every op mutates the handle's mesh in place and returns an `FModelingResult` (`success`, `message`, `triangle_count`, `vertex_count`).
-3. `save_mesh_to_static_mesh(handle, "/Game/Props/SM_Crate")` writes the asset (creates or replaces); `spawn_static_mesh_actor(...)` places it.
+3. `save_mesh_to_static_mesh(handle, "/Game/Props/SM_Crate")` writes the asset (creates or replaces); Epic's `EditorToolset.LevelToolset.AddToSceneFromAsset` (`assetPath`, `name`, `xform`) places it in the level.
 4. `release_mesh(handle)` when done (or `release_all_meshes()`); handles are session-scoped and not saved.
 
 Operations that take a **selection** use a named selection created on the same handle
@@ -74,12 +76,13 @@ r = svc.save_mesh_to_static_mesh(h, "/Game/Props/SM_Crate", True, True)     # na
 print("CREATED:", r.asset_path, r.triangle_count, "tris")
 svc.generate_collision("/Game/Props/SM_Crate", "ConvexHulls", 4)
 svc.set_lods("/Game/Props/SM_Crate", [1.0, 0.5, 0.25])
-svc.spawn_static_mesh_actor("/Game/Props/SM_Crate", unreal.Transform(unreal.Vector(0, 0, 0)), "Crate_01")
+await call_tool("EditorToolset.LevelToolset.AddToSceneFromAsset", assetPath="/Game/Props/SM_Crate", name="Crate_01", xform=unreal.Transform())
 svc.release_all_meshes()
 ```
 
-Then **look at it**, framed on the actor, using the available viewport capture tool (native Unreal
-MCP exposes `capture_image` with `source="editor"`). A successful call is not proof the shape is right.
+Then **look at it**, framed on the actor, with UE 5.9's native capture tool
+(`SceneCaptureToolset.SceneCaptureToolset.CaptureActiveEditorView`, or `CaptureEditorViewport` for a
+specific viewport; both return an MCP image block). A successful call is not proof the shape is right.
 
 A level made with `new_level()` has **no lighting**, so a black capture may be a lighting problem.
 For daylight, use a DirectionalLight pointing down (`Rotator(roll=0, pitch=-48, yaw=125)`),
@@ -87,16 +90,19 @@ a SkyLight and SkyAtmosphere. A dark studio can instead use movable RectLights a
 Use an unbound PostProcessVolume with fixed exposure for consistent material evaluation; tune
 exposure to the actual light intensities rather than treating one bias value as universal.
 
+Before any raw `unreal.GeometryScript_*` call, read [geometryscript-cheatsheet.md](geometryscript-cheatsheet.md).
 For modeled lettering and logos, read [modeled-lettering.md](modeled-lettering.md).
 For lit promotional images, high-resolution capture, or distributable asset packs, read
-[showcase-and-delivery.md](showcase-and-delivery.md). These sibling documents are also registered
-as native Unreal agent sub-doc skills by Vibe3D.
+[showcase-and-delivery.md](showcase-and-delivery.md). These sibling pages are not separate skill
+entries: UE rewrites the links to absolute paths when it serves this skill, so read the file at the
+path given (see **Reference pages** at the end).
 
 ## Function map (Python names)
 
 | Area | Functions |
 |---|---|
 | Session | `create_mesh()`, `load_mesh_from_static_mesh(path, lod=0)`, `load_mesh_from_skeletal_mesh(path, lod=0)`, `load_mesh_from_actor(label)`, `copy_mesh(handle)`, `release_mesh(handle)`, `release_all_meshes()`, `list_meshes()`, `get_mesh_info(handle)` |
+| Bulk vertex access | `get_vertex_positions(handle)` → plain list of `Vector` indexed by vertex ID, `set_vertex_positions(handle, positions)` (same layout back; no `GeometryScriptVectorList` conversion) |
 | Primitives (append into a handle) | `append_box`, `append_sphere`, `append_sphere_box`, `append_cylinder`, `append_cone`, `append_capsule`, `append_torus`, `append_rectangle`, `append_disc`, `append_stairs`, `append_curved_stairs`, `append_extrude_polygon(handle, transform, points2d, height)`, `append_revolve_polygon(handle, transform, points2d, radius, steps, degrees)`, `append_sweep_polyline(handle, transform, profile2d, path_transforms)` (open tube — prefer the next one for solids), `append_loft(handle, transform, closed_profile2d, frames)` (capped, always outward; frame scale = chord), `append_mesh(handle, other_handle, transform)`, `append_mesh_at_transforms(handle, other, [transforms])`, `append_mesh_along_polyline(handle, other, points, spacing, up)` |
 | Booleans | `boolean(target, tool, "Union|Subtract|Intersection", tool_transform)`, `self_union`, `plane_cut(handle, plane_transform, fill_holes)`, `mirror(handle, plane_transform, weld)`, `cut_groove_along_polyline(handle, points, width, depth, up)` |
 | Selections | `select_all(handle, name)`, `select_by_normal_angle(handle, name, normal, max_angle_deg)`, `select_in_box(handle, name, box_min, box_max)`, `select_in_sphere(handle, name, center, radius)`, `select_by_material_id(handle, name, material_id)`, `select_by_polygroup(handle, name, group_id)`, `select_connected(handle, name, point)` (whole connected piece nearest the point), `select_by_bone_weight(handle, name, "bone,bone", min_weight=0.25)` (vertices those bones drag — region finding for weight repair), `expand_contract_selection(handle, name, new_name, iterations, contract)`, `invert_selection(handle, name, new_name)`, `selection_count(handle, name)`, `selection_bounds(handle, name)` → `(min, max)` (Python drops the bool; an empty selection gives zero vectors), `clear_selections(handle)` |
@@ -107,7 +113,11 @@ as native Unreal agent sub-doc skills by Vibe3D.
 | Voxel | `voxel_solidify(handle, grid_resolution)`, `voxel_morphology(handle, "Dilate|Contract|Open|Close", distance, grid_resolution)` |
 | UVs / normals / groups / materials / colors | `auto_uv(handle, "XAtlas|PatchBuilder", uv_layer)`, `project_uv(handle, "Planar|Box|Cylinder", transform, uv_layer, sel)`, `repack_uv(handle, uv_layer, resolution)`, `set_num_uv_layers`, `recompute_normals(handle, hard_angle_deg)`, `flip_normals`, `ensure_outward(handle)` (flip if the enclosed volume is negative), `compute_polygroups(handle, "Angle|UVIslands|Components|Polygons", crease_angle)`, `set_material_id(handle, sel, id)`, `remap_material_id(handle, from, to)`, `set_vertex_color(handle, sel, color)`, `set_polygroup(handle, sel, group_id=-1)`, `recompute_uvs(handle, uv_layer, "Polygroups|UVIslands", "SpectralConformal|Conformal|ExpMap", sel)`, `transform_uv(handle, uv_layer, sel, translation, scale, rotation_deg, origin)`, `layout_uv(handle, uv_layer, "Repack|Stack|Normalize|Transform", sel, resolution)`, `pack_uv_per_material(handle, uv_layer, resolution)`, `get_uv_stats(handle, uv_layer)` → islands/coverage/overlap/texel density, `world_to_uv(handle, point, uv_layer)` |
 | Transform | `transform_mesh(handle, transform)`, `translate_mesh`, `rotate_mesh`, `scale_mesh`, `recenter_mesh(handle, "Bounds|Base")` |
-| Assets | `save_mesh_to_static_mesh(handle, path, replace_existing, enable_collision, enable_nanite)`, `save_mesh_to_skeletal_mesh(handle, path, skeleton_path="")` ("" creates `<path>_Skeleton` from the mesh bones), `set_asset_materials(asset_path, "/Game/M_A,/Game/M_B")`, `transfer_bone_weights(handle, source_skeletal_mesh_path)`, `smooth_bone_weights(handle, skeleton_path)`, `prune_bone_weights(handle, "bone,bone")`, `scale_bone_weights(handle, sel, "bone,bone", scale, receiver_bone="")` (regional weight repair; freed weight -> receiver or strongest other influence), `smooth_selection_bone_weights(handle, sel, iterations=3, alpha=0.5)` (feather weight seams), `inspect_bone_weights(handle, sel="")` (per-bone verts/avg/max, weight sums, max influences), `create_bones(handle, [ModelingBoneDef(name, parent_name, transform)])`, `bind_selection_to_bone(handle, sel, bone, weight=1)`, `list_bones(handle)` → per-bone vertex counts, `generate_collision(asset_path, "MinVolumeShapes|ConvexHulls|AlignedBoxes|OrientedBoxes|MinimalSpheres|Capsules|SweptHulls", max_hulls)`, `set_lods(asset_path, [percent_triangles...])`, `bake_textures(target_handle, source_handle, "TangentNormal,AmbientOcclusion,Curvature,ObjectNormal,Position,VertexColor,MaterialID,UVShell,Height", resolution, out_folder, base_name)`, `bake_texture_transfer(target, source, "T_A,T_B", resolution, out_folder, base_name)`, `import_texture(file, asset_path, srgb, "Default|Normalmap|Masks|Grayscale|HDR")`, `create_noise_texture(asset_path, w, h, cells, octaves)`, `draw_on_texture(asset_path, "Line|Dots|Rect|Fill", uv_points, color, thickness_px, spacing_px)`, `spawn_static_mesh_actor(asset_path, transform, label)`; `load_mesh_from_actor` also reads skeletal / dynamic mesh actors |
+| Generated-prop intake | `intake_generated_mesh(file, asset_path, target_size_cm, fit_axis="Height", yaw_deg=0, pivot="BottomCenter", max_triangles=20000, max_texture_size=1024, collision="ConvexHulls", max_convex_hulls=4, lod_percents="", target_box_cm=Vector(), enable_nanite=False, force=False)` → `ModelingIntakeReport` (import GLB/FBX/OBJ, merge, scale, pivot, decimate, cap textures, LODs, collision; see **Generated props**) |
+| Posed reads and garment fit | `load_mesh_from_skinned_component(actor_label, component_name="", world_space=False, lod_index=0, prefer_play_world=True)` (the component's CURRENT pose; PIE first), `unpose_mesh(handle)`, `measure_penetration(handle, other, "Inside|Outside", margin, max_distance=5, sel="", out_selection="")` → `ModelingPenetrationReport`, `push_inside(handle, other, margin, sel, max_distance, smooth_iterations)`, `push_outside(...)`, `select_hidden_by(handle, name, other, margin, max_distance, all_vertices=True)` — see **Fitting garments** |
+| Accessory re-skin | `skin_to_surface(handle, source_handle, mode="Surface|Inpaint|Rigid", rigid_bone_name="", bones_from_skeletal_mesh="", smooth_iterations=0, smooth_strength=0)` (weights from the skinned surface underneath), `remap_lod_bones(asset_path, reference_skeletal_mesh_path)` (move weight off bones the leader drops at lower LODs) — see **Accessories that follow a surface** |
+| Skeletal LODs in place | `load_mesh_from_skeletal_mesh(path, lod)` (source model; the handle remembers where it came from), `save_mesh_to_skeletal_mesh_lod(handle, asset_path="", lod_index=-1)` (write ONE LOD back, validated; keeps skeleton, slots and the other LODs; lod_index == LOD count appends), `inspect_skeletal_mesh(path)` (slots, per-LOD source / verts / tris / bones used) — see **Editing a skeletal mesh LOD in place** |
+| Assets | `save_mesh_to_static_mesh(handle, path, replace_existing, enable_collision, enable_nanite)`, `save_mesh_to_skeletal_mesh(handle, path, skeleton_path="")` ("" creates `<path>_Skeleton` from the mesh bones; on an existing asset it replaces LOD0 through the same validated writer), `set_asset_materials(asset_path, "/Game/M_A,/Game/M_B")`, `transfer_bone_weights(handle, source_skeletal_mesh_path)`, `smooth_bone_weights(handle, skeleton_path)`, `prune_bone_weights(handle, "bone,bone")`, `scale_bone_weights(handle, sel, "bone,bone", scale, receiver_bone="")` (regional weight repair; freed weight -> receiver or strongest other influence), `smooth_selection_bone_weights(handle, sel, iterations=3, alpha=0.5)` (feather weight seams), `inspect_bone_weights(handle, sel="")` (per-bone verts/avg/max, weight sums, max influences), `create_bones(handle, [ModelingBoneDef(name, parent_name, transform)])`, `bind_selection_to_bone(handle, sel, bone, weight=1)`, `list_bones(handle)` → per-bone vertex counts, `generate_collision(asset_path, "MinVolumeShapes|ConvexHulls|AlignedBoxes|OrientedBoxes|MinimalSpheres|Capsules|SweptHulls", max_hulls)`, `set_lods(asset_path, [percent_triangles...])`, `bake_textures(target_handle, source_handle, "TangentNormal,AmbientOcclusion,Curvature,ObjectNormal,Position,VertexColor,MaterialID,UVShell,Height", resolution, out_folder, base_name)`, `bake_texture_transfer(target, source, "T_A,T_B", resolution, out_folder, base_name)`, `create_noise_texture(asset_path, w, h, cells, octaves)`, `draw_on_texture(asset_path, "Line|Dots|Rect|Fill", uv_points, color, thickness_px, spacing_px)`; image import is Epic's `EditorToolset.TextureToolset.ImportFile` + `EditorToolset.ObjectToolset.SetProperties`, and placing an asset in the level is `EditorToolset.LevelToolset.AddToSceneFromAsset`; `load_mesh_from_actor` also reads skeletal / dynamic mesh actors |
 
 ## GeometryScript coverage
 
@@ -116,13 +126,22 @@ Mode tool plus the asset plumbing. What it deliberately does not wrap, and how t
 
 | Not wrapped | Why | Reach it with |
 |---|---|---|
-| `GeometryScript_List*`, `VectorMath`, `Transform`, `Box`, `OrientedBox`, `Ray`, `SimplePolygon`, `PolyPath`, `PolygonList`, `PointSetSampling` | Pure math / container helpers, not editor operations | Call directly — they take plain values |
-| `MeshWeightMap`, `MeshSculptLayers`, `MeshGeodesic`, `TextureMap`, `VolumeTextureBake`, `EditorTextureMap` | Niche; would double the API for rare use | `mesh = svc.get_dynamic_mesh(handle)` then e.g. `unreal.GeometryScript_MeshGeodesics.create_surface_path(mesh, ...)` |
+| `GeometryScript_List`, `GeometryScript_VectorMath`, `GeometryScript_Transform`, `GeometryScript_Box`, `GeometryScript_OrientedBox`, `GeometryScript_Ray`, `GeometryScript_SimplePolygon`, `GeometryScript_PolyPath`, `GeometryScript_PolygonList`, `GeometryScript_PointSetSampling` | Pure math / container helpers, not editor operations | Call directly — they take plain values |
+| `GeometryScript_WeightMaps`, `GeometryScript_MeshSculptLayers`, `GeometryScript_MeshGeodesic`, `GeometryScript_TextureUtils`, `GeometryScript_VolumeBake`, `GeometryScript_EditorTextureUtils` | Niche; would double the API for rare use | `mesh = svc.get_dynamic_mesh(handle)` then e.g. `unreal.GeometryScript_MeshGeodesic.create_surface_path(mesh, ...)` |
 | Per-function option structs (remesh smoothing type, bake bit depth, XAtlas iterations, ...) | The wrappers fix sensible defaults | Same trick — the handle's `UDynamicMesh` is the live object; GeometryScript calls edit it in place and the next `svc.*` call sees the result |
 
-Discover any of them with `discover_python_class('unreal.GeometryScript_<Library>')`.
+**Do not guess GeometryScript class names.** The Python class is the library's `ScriptName`, not its C++ name:
+`GeometryScript_MeshEdits` (not `MeshBasicEdits`), `GeometryScript_NewAssetUtils` (not `CreateNewAsset`),
+`GeometryScript_AssetUtils` (static and skeletal mesh read/write), `GeometryScript_Primitives`, `GeometryScript_UVs`.
+Arrays travel as typed wrapper structs (`GeometryScriptVectorList`, `GeometryScriptScalarList`, `GeometryScriptIndexList`,
+...) that are not interchangeable. Read [geometryscript-cheatsheet.md](geometryscript-cheatsheet.md) before the first raw
+GeometryScript call: every library's real Python name, which list type each function takes, and how out-parameters come
+back. For vertex positions you do not need a list type at all: `svc.get_vertex_positions(h)` / `svc.set_vertex_positions(h, positions)`.
 
-Exact signatures: `discover_python_class('unreal.ModelingService')`. The long tail — anything not
+Discover any of them with `search_symbols` (e.g. pattern `GeometryScript_`), then `get_symbol` with
+`name="unreal.GeometryScript_<Library>"`.
+
+Exact signatures: `get_symbol` with `name="unreal.ModelingService"`. The long tail — anything not
 here — is reachable directly: the mesh behind a handle is `svc.get_dynamic_mesh(handle)`, which you
 can pass to any `unreal.GeometryScript_*` library function in the same script.
 
@@ -185,7 +204,7 @@ can pass to any `unreal.GeometryScript_*` library function in the same script.
 - Calling `extrude_faces` with `""` (whole mesh) — that shells the whole object outward. Select faces first.
 - Forgetting `auto_uv` before `bake_textures` or before saving a mesh that will take a textured material.
 - `set_lods` with `[1.0]` only — that removes extra LODs. Give one entry per LOD, LOD0 first.
-- Loading a mesh from an actor and saving back to a *new* path, then wondering why the level didn't change — spawn or reassign the actor's mesh.
+- Loading a mesh from an actor and saving back to a *new* path, then wondering why the level didn't change — spawn (`EditorToolset.LevelToolset.AddToSceneFromAsset`) or reassign the actor's mesh.
 - **Passing `material_id` positionally.** These wrappers have long tails of optional arguments
   (`append_stairs(handle, transform, step_width, step_height, step_depth, num_steps, floating, material_id)`),
   so one missing argument silently feeds your material id to `floating`. Pass the tail by keyword:
@@ -215,11 +234,66 @@ svc.set_asset_materials("/Game/Props/SM_Mug", "/Game/M_Ceramic,/Game/M_Coffee")
 - Without `set_asset_materials` every slot renders as the default grey — a mesh with correct ids
   still looks untextured in the viewport.
 
+## Generated props: image-to-3D model → game asset in one call
+
+Models from image-to-3D services (Hyper3D Rodin, Tripo, Tonetta Forge, ...) arrive at an arbitrary scale with
+the pivot in the middle, far too many triangles and 2-4K textures. `intake_generated_mesh` does the whole clean-up
+inside the editor — no Blender pass:
+
+```python
+r = svc.intake_generated_mesh("C:/gen/knife_tray/knife_tray.glb", "/Game/Props/KnifeTray/SM_KnifeTray",
+        target_size_cm=48.0, fit_axis="Width",        # the size you KNOW: a door's height, a tray's width
+        yaw_deg=0.0, pivot="BottomCenter",            # "TopCenter" for hanging lamps
+        max_triangles=12000, max_texture_size=1024,   # 1024 for web/mobile, 2048 for a hero prop
+        collision="ConvexHulls", max_convex_hulls=4,  # "Box" for simple shapes, "None" for decor nobody touches
+        lod_percents="1,0.5,0.25")                    # "" = one LOD (small or thin props)
+print(r.message)            # tris before/after, final size, scale, LODs, collision shapes, slots, textures
+print(r.bounds_min, r.bounds_max, r.textures)
+```
+
+What it does, in order: imports the file into a staging folder (GLB/glTF; FBX and OBJ work too), merges every
+mesh into ONE StaticMesh at the asset path, turns it `yaw_deg` about Z, scales it (`fit_axis`: `Height` = Z,
+`Width` = X, `Depth` = Y, `Longest`, `Box` = stretch to `target_box_cm` per axis, `None`), moves the pivot,
+decimates to `max_triangles`, caps every texture's Maximum Texture Size (the built, cooked and loaded size; the
+source pixels stay full-size in the .uasset, so raising the cap later needs no re-import), builds LODs and simple collision, keeps the
+materials and textures next to the mesh as `MI_<Name>_<i>` (`M_` for a plain material) / `T_<Name>_<Role>`
+(BaseColor, Normal, ...; `<Name>` is the asset name without `SM_`), and
+deletes everything else the import made.
+
+- **Idempotent.** The asset is tagged with the file's hash and the settings; the same call again returns
+  `up_to_date=True` without touching anything. A new file or a changed setting replaces the mesh **in place**, so
+  actors already placed keep working (`force=True` redoes it regardless).
+- **Only intake's own assets are replaced.** A StaticMesh at the asset path that intake did not make is refused unless
+  `force=True`. On a re-run, the previous run's materials and textures are deleted once nothing references them;
+  other assets with the same names are never deleted (the new ones get `_2`, `_3`).
+- **Read the report before placing.** `message` warns `stretched N%` when a `Box` fit distorted the proportions —
+  prefer a uniform fit on the one dimension you know. A source of 0 triangles, a skinned file (imports as a
+  SkeletalMesh) or an unknown `fit_axis` / `pivot` / `collision` fails with the reason.
+- **Thin parts and decimation.** Lattices, trusses, chain links and wire break apart when decimated: give them a
+  higher `max_triangles` and `lod_percents=""` rather than accepting holes.
+- **Where the front faces is the model's business.** Generators pick their own forward axis. Render the result
+  from several sides (or `CaptureEditorViewport` after placing it) and fix a wrong facing with `yaw_deg` in 90°
+  steps; then re-run the same call (it replaces in place).
+
+The full loop for a generated prop:
+
+1. **Reference sheet first.** Build an all-angle identity sheet of the prop (if a `reference-images` skill is
+   installed, use it) and look at it; re-roll the whole sheet when views disagree.
+2. **Generate from the sheet's views with multi-view input**, never from one image: a single three-quarter view
+   makes the generator invent every hidden side (a crystal shard came back as a cup).
+3. **`intake_generated_mesh`** with the real-world size.
+4. **Look at it**: a turnaround render (the reference-images skill's turnaround tooling, or captures from 4-8 sides)
+   next to the sheet. Fix facing or size by re-running intake with new settings.
+5. **Place it** with `EditorToolset.LevelToolset.AddToSceneFromAsset`; with the `BottomCenter` pivot the actor's
+   location is the point on the floor.
+
 ## Return types
 
 - `FModelingResult`: `success`, `message`, `handle`, `triangle_count`, `vertex_count`, `asset_path`.
 - `FModelingMeshInfo` (`get_mesh_info`): `handle`, `triangle_count`, `vertex_count`, `is_closed`, `open_border_edges`, `connected_components`, `bounds_min`, `bounds_max`, `surface_area`, `volume`, `num_uv_layers`, `has_vertex_colors`, `material_ids`.
 - `FModelingSplitResult` (`split_by_components`): `success`, `handles`.
+- `FModelingPenetrationReport` (`measure_penetration`): `success`, `message`, `vertices_checked`, `violations`, `max_depth`, `average_depth`, `worst_position`, `worst_vertex`.
+- `FModelingIntakeReport` (`intake_generated_mesh`): `success`, `message`, `asset_path`, `up_to_date`, `source_mesh_count`, `source_triangles`, `triangle_count`, `vertex_count`, `source_size`, `scale_applied`, `bounds_min`, `bounds_max`, `lod_count`, `collision_shapes`, `material_paths`, `textures`.
 
 ## Lofted solids (wings, fins, hulls)
 
@@ -333,7 +407,7 @@ print(svc.selection_bounds(h, "collar"))                           # sanity: is 
 svc.scale_bone_weights(h, "collar", "head,neck_02", 0.25, "spine_05")  # keep 25%, rest -> spine_05
 svc.smooth_selection_bone_weights(h, "collar", 3, 0.5)             # feather the seam
 print(svc.inspect_bone_weights(h, "collar").message)               # per-bone verts/avg/max + sums
-svc.save_mesh_to_skeletal_mesh(h, "/Game/.../SK_Jacket", "<its skeleton path>")
+svc.save_mesh_to_skeletal_mesh_lod(h)                              # back into the LOD it came from (repeat per LOD)
 ```
 
 - `select_by_bone_weight` builds the region from the weights themselves — more reliable than a box
@@ -347,6 +421,133 @@ svc.save_mesh_to_skeletal_mesh(h, "/Game/.../SK_Jacket", "<its skeleton path>")
 - `inspect_bone_weights(h, sel="")` is the audit: influencing bones, per-bone average/max, weight
   sums (should be 1.0 ± quantization), max influences. Check it before saving, and verify the pose
   in the animation skill afterwards — bad weights are invisible in the ref pose.
+
+## Editing a skeletal mesh LOD in place (garments, accessories, bodies)
+
+Characters are skeletal: shirts, dresses, accessories and bodies all carry a skeleton, material slots, skin weights
+and several LODs. Do not rebuild the asset to change its geometry; round-trip the LOD you are fixing:
+
+```python
+print(svc.inspect_skeletal_mesh("/Game/Chars/SKM_Shirt").message)   # slots, LODs (source model or generated), verts, bones used
+for lod in range(3):
+    h = svc.load_mesh_from_skeletal_mesh("/Game/Chars/SKM_Shirt", lod).handle
+    # ... any edit: move vertices, smooth, repair weights, push out of the body ...
+    r = svc.save_mesh_to_skeletal_mesh_lod(h)      # back to the asset and LOD it came from
+    print(r.success, r.message)
+    svc.release_mesh(h)
+svc.save_mesh_to_skeletal_mesh_lod(low_handle, "/Game/Chars/SKM_Shirt", 3)   # lod_index == LOD count appends a LOD
+```
+
+- **Load reads the source model** (the editable vertex layout). Never mix in positions read through
+  `GeometryScriptMeshReadLOD` with the default `MAX_AVAILABLE`/render data: render data splits vertices along seams, so
+  its vertex count differs and a writer fails (`dm verts 10364 != weight verts 10350`). A LOD that was *generated by
+  reduction* has no source model; the load message says so, and writing it back turns it into a custom LOD.
+- **Save validates before it writes**, and writes nothing on failure: every vertex must carry skin weight (an
+  unweighted vertex collapses to the root at runtime), every bone on the mesh must exist in the asset's skeleton
+  (matched by name, so the order does not matter), bone and material indices must be in range, and a posed handle
+  must be `unpose_mesh`-ed first. Afterwards it reads the LOD back and compares the vertex count.
+- **What is kept:** skeleton and reference skeleton, every material slot and the LOD's material map, the other LODs,
+  the LOD's recompute-normals/tangents settings, which section uses which slot, and — when the topology is unchanged
+  since the load — the original vertex order (morph targets and anything else indexed by vertex). The LOD stops
+  being auto-generated from LOD0 (it is a custom LOD now).
+- A topology change (remesh, delete faces) is allowed; give new triangles a material ID the asset has a slot for and
+  re-weight new vertices (`transfer_bone_weights`, `skin_to_surface`).
+- **Normals.** `save_mesh_to_skeletal_mesh_lod` keeps the LOD's build settings: when they recompute normals, the
+  engine rebuilds them from the new geometry and the handle's own normals are not used (the message says so).
+  `save_mesh_to_skeletal_mesh` on an existing asset stores the handle's normals as they are, as it always has.
+- **Lower LODs generated from the one you wrote** (no source model of their own) are regenerated by the engine from
+  the new geometry; custom LODs are not touched.
+
+**Changed behaviour of the two older calls** (scripts written before these sections existed):
+
+- `load_mesh_from_skeletal_mesh(path, lod)` now **fails** for a LOD the asset does not have. It used to succeed: the
+  engine silently read the nearest existing LOD while the result said the one asked for. Read the LOD count from
+  `inspect_skeletal_mesh` instead of probing.
+- `save_mesh_to_skeletal_mesh` on an **existing** asset (`replace_existing` defaults to True) replaces LOD0 through
+  the validated writer. Kept that used to be lost: which section uses which material slot. Matched by name instead of
+  by index: bones. Refused with nothing written, where a broken asset used to be saved: vertices without skin weight,
+  bones the asset's skeleton lacks, a material ID with no slot, a posed handle. Creating a new asset is unchanged.
+
+## Fitting garments: skin under cloth, cloth off skin, in the pose the game uses
+
+Poke-through depends on the pose: a fit that is clean in the reference pose can be 10+ cm wrong seated, and
+runtime post-process / corrective bones only exist on the running component. So read the meshes **as posed** —
+from PIE when it is running — fit them against each other, then take the result back to the reference pose and
+write it into the asset LOD:
+
+```python
+# the character is posed in PIE (or in the editor world); both handles in the same (component) space
+body  = svc.load_mesh_from_skinned_component("BP_Ava", "Body",  False).handle
+dress = svc.load_mesh_from_skinned_component("BP_Ava", "Dress", False).handle   # a leader-pose follower reads the leader's pose
+r = svc.measure_penetration(body, dress, "Inside", 0.3, 5.0, "", "poking")      # skin poking through the dress
+print(r.violations, r.max_depth, r.worst_position)
+svc.push_inside(body, dress, 0.3, "", 5.0, 2)          # skin moved under the dress, feathered over 2 rings
+svc.unpose_mesh(body)                                  # back to the reference pose (edits carried through the inverse skinning)
+svc.save_mesh_to_skeletal_mesh_lod(body)               # into the body asset LOD it came from
+```
+
+| Need | Call |
+|---|---|
+| How bad is it (per garment, per pose) | `measure_penetration(a, b, "Inside", margin)`: `a` belongs under `b` (skin under cloth, an inner layer under an outer one); `"Outside"`: `a` belongs over `b` (cloth over skin, a collar off the face). `violations`, `max_depth`, `average_depth`, `worst_position`; `out_selection` stores the offenders |
+| Push skin in under the cloth | `push_inside(body, garment, margin)` |
+| Push cloth out of the body or face | `push_outside(garment, body, margin)` |
+| Drop skin (or an inner garment) fully hidden under cloth | `select_hidden_by(body, "hidden", garment, margin)` then `delete_faces(body, "hidden")` |
+
+- **Only covered vertices are judged.** A vertex counts when it is within `max_distance` of the other surface AND
+  projects onto it (the offset runs along that face's normal). A head above a collar or hands past a sleeve are
+  never dragged into the cloth; raise `max_distance` only for loose garments. The other mesh's face normals define
+  "outside", so it needs consistent outward normals (any imported garment has them).
+- **Push rather than delete for dresses and open garments.** Deleting skin under a dress leaves holes where the
+  dress opens or moves (a see-through crotch, hollow legs). Push the skin in with a margin, and keep deletion for
+  regions that are covered in every pose.
+- **Fit in every pose the game uses.** One pose's fix can break another. Pose the character (PIE, each clip or
+  seated/standing state), read, measure, push, unpose, save — once per pose, worst first — and re-measure the
+  earlier poses at the end. (If VibeMetaHumans is installed, its wardrobe tools wrap this for MetaHuman bodies and
+  their post-process bones; this service is the generic mesh-vs-mesh layer underneath.)
+- **A posed handle cannot be saved as a reference pose** (`save_mesh_to_skeletal_mesh_lod` refuses it, and a
+  `copy_mesh` of it stays posed). `unpose_mesh` first. Normals are not re-skinned in the pose; only positions are.
+- The handle's vertex IDs are the asset LOD's source-model IDs, so selections, weights and the write-back all line
+  up; morph targets and cloth simulation are not applied to the posed read.
+
+## Accessories that follow a surface (ties, dog tags, scarves, holsters)
+
+A static accessory attached to one bone rides rigidly while the cloth under it bends: a tie stays put while the
+neck turns, dog tags float off a slumped chest. Skin it to the surface it lies on instead — no Blender, no hand-
+written nearest-point loop:
+
+```python
+body = "/Game/Chars/Ava/SKM_Ava_Body"
+# 1. the accessory, placed where it should sit, in the body's component space (here: from its static mesh + the fitted transform)
+acc = svc.load_mesh_from_static_mesh("/Game/Props/SM_Tie").handle
+svc.transform_mesh(acc, fitted_transform_in_body_space)
+# 2. the surface it lies on, in the SAME space: the garment asset (its own reference pose; fine when it matches the body's) ...
+shirt = svc.load_mesh_from_skeletal_mesh("/Game/Chars/Ava/SKM_Ava_Shirt").handle
+#    ... or the garment exactly as displayed on a placed character (follower of the body):
+# shirt = svc.load_mesh_from_skinned_component("BP_Ava", "Shirt", False).handle
+# 3. weights from the closest surface point; the result carries the BODY's skeleton so it can follow the body
+print(svc.skin_to_surface(acc, shirt, "Surface", "", body).message)     # top bones with their share
+svc.save_mesh_to_skeletal_mesh(acc, "/Game/Props/SKM_Tie", "<the body's Skeleton asset path>")
+# 4. lower LODs: move weight off bones the body drops at LOD1+ (they stop updating and the accessory streaks)
+print(svc.remap_lod_bones("/Game/Props/SKM_Tie", body).message)
+```
+
+- **Modes.** `Surface` copies the weights of the closest surface point (thin pieces lying on the cloth). `Inpaint`
+  keeps the clear matches and smoothly fills the rest (pieces that stand off the surface: a buckle, a holster).
+  `Rigid` puts every vertex 100% on one bone — `rigid_bone_name`, or the bone the surface under it is most weighted
+  to — for hard items that must not deform (a badge, a watch face). `smooth_iterations` / `smooth_strength` blur
+  the transferred weights.
+- **Both meshes must be in the same space.** The weights come from proximity: an accessory in world space against
+  a garment in component space finds nothing sensible. Load the surface at the reference pose (asset) or as
+  displayed (`load_mesh_from_skinned_component` with `world_space=False`) and put the accessory in that space.
+- **`bones_from_skeletal_mesh`** gives the result another mesh's skeleton (the body it will follow); weights are
+  matched by bone name. Without it the result carries the source's bones.
+- **Attach** the saved mesh as a leader-pose follower of the body (a SkeletalMeshComponent with `set_leader_pose_component(body)`;
+  if VibeMetaHumans is installed, its wardrobe service does the component swap for MetaHumans).
+- **`remap_lod_bones(asset, reference)`** reads which bones the reference (the leader) keeps at each LOD, moves every
+  influence on a dropped bone to its nearest kept ancestor and writes each LOD back in place. The follower's last LOD
+  also covers the leader's lower LODs. Bones the leader does not have at all (the follower's own) are left alone.
+  Only LODs with something to move are written; a written LOD that was generated by reduction becomes a custom LOD.
+  Run it after any re-skin of a follower, and whenever a garment or accessory "streaks" or "explodes" only at distance.
 
 ## Texturing pipeline (UVs you control, masks you can make, pixels you can draw)
 
@@ -372,8 +573,19 @@ texel density. For anything an artist would paint, build the islands yourself an
 6. **Pixels.** `create_noise_texture(path, 2048, 2048, cells, octaves)` for tileable grunge/wear;
    `draw_on_texture(path, "Line|Dots|Rect|Fill", uv_points, color, thickness_px, spacing_px)` to draw
    rivet rows, stripes and blocks straight into an 8-bit texture in UV space (use `world_to_uv` to
-   place them); `import_texture(file, path, srgb, "Default|Normalmap|Masks|Grayscale")` for anything
-   made elsewhere (a PolyHaven PBR set downloaded with `urllib` in the same Python script works).
+   place them). For textures made elsewhere (a PolyHaven PBR set downloaded with `urllib` in the same Python script works),
+   use Epic `ImportFile` then `SetProperties` inside `execute_python`. `ImportFile` is async: `await` it before `SetProperties`.
+   `instance` is the imported texture's object path; `values` is a JSON STRING (`json.dumps`), not a dict.
+   `CompressionSettings` = `TC_Default|TC_Normalmap|TC_Masks|TC_Grayscale|TC_HDR`; normal maps also want `LODGroup` = `TEXTUREGROUP_WorldNormalMap`:
+   ```python
+   import json
+   await call_tool("EditorToolset.TextureToolset.ImportFile", folderPath="/Game/Textures", assetName="T_Rust_N",
+                   sourceFile="C:/dl/rust_n.png", bReplaceExisting=True, bSave=False)
+   await call_tool("EditorToolset.ObjectToolset.SetProperties", instance="/Game/Textures/T_Rust_N.T_Rust_N",
+                   values=json.dumps({"SRGB": False, "CompressionSettings": "TC_Normalmap", "LODGroup": "TEXTUREGROUP_WorldNormalMap"}))
+   ```
+   The result is unsaved after `SetProperties`: save it afterwards (`unreal.EditorAssetLibrary.save_asset("/Game/Textures/T_Rust_N")`);
+   `ImportFile`'s `bSave` would run before the property edit.
    `bake_texture_transfer(target, source, "T_A,T_B", …)` re-projects textures from one unwrap onto
    another (after re-unwrapping, or from a detail mesh).
 7. **Geometry detail for normal maps.** Build it on a copy: `append_mesh_along_polyline(h, rivet, points,
@@ -383,3 +595,10 @@ texel density. For anything an artist would paint, build the islands yourself an
 
 Crisp markings (roundels, numbers) are still best as decals: `set_num_uv_layers(h, 2)` +
 `project_uv(h, "Planar", transform, 1, sel)` gives a clamped UV1 the material samples a decal through.
+
+## Reference pages
+
+- [geometryscript-cheatsheet.md](geometryscript-cheatsheet.md) — real Python class names of every GeometryScript library, the list type each function takes, out-parameter tuples
+- [modeled-lettering.md](modeled-lettering.md) — extruded logo lettering from font contours
+- [showcase-and-delivery.md](showcase-and-delivery.md) — lighting, high-resolution capture, asset packs
+- [scripts/exercise_all.txt](scripts/exercise_all.txt) — calls every ModelingService function and prints `RESULT: PASS`

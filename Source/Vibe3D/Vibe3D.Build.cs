@@ -20,20 +20,19 @@ public class Vibe3D : ModuleRules
 				"Core",
 				"CoreUObject",
 				"Engine",
-				"ToolsetRegistry",          // UE 5.8 native AI toolset registry: UToolsetDefinition base + AICallable registration
+				"ToolsetRegistry",          // UE 5.9 native AI toolset registry: UToolsetDefinition base + AICallable registration
 			}
 		);
 
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{
-				"UnrealEd",                 // editor subsystems, UAssetImportTask, automation
+				"UnrealEd",                 // editor subsystems, automation
 				"EditorSubsystem",
 				"EditorScriptingUtilities", // UEditorAssetLibrary
 				"AssetRegistry",
 				"AssetTools",               // texture import
-				"Projects",                 // IPluginManager (plugin content dir for skill reload)
-				"PythonScriptPlugin",       // Vibe3D.ReloadSkills re-runs Content/Python/init_unreal.py
+				"Projects",                 // IPluginManager (plugin dir for the agent-guide sample)
 				"GeometryCore",             // FDynamicMesh3 + attribute sets behind UDynamicMesh
 				"GeometryFramework",        // UDynamicMesh session meshes
 				"DynamicMesh",              // mesh operator types used by GeometryScript

@@ -17,13 +17,13 @@ Status of the plugin against Epic's Fab requirements for a **code plugin**. Mirr
 - [x] Each project file link hosts exactly one plugin folder with the proper structure
       (`MakePlugin.ps1` enforces the layout and fails if anything required is missing)
 - [x] Documentation is linked and in-editor — `README.md`, plus the `modeling` agent skill
-      registered at editor start (`Content/Skills/modeling/SKILL.md`)
+      discovered natively by UE 5.9 (`Skills/modeling/SKILL.md`, listed in `FilterPlugin.ini`)
 - [x] No Megascans or other re-distributed third-party content
 
 ## Code plugin
 
 ### .uplugin configuration
-- [x] `EngineVersion` = **"5.8.0"**
+- [x] `EngineVersion` = **"5.9.0"**
 - [x] `PlatformAllowList` = Win64 + Linux + Mac (matches the supported target platforms)
 - [x] `EnabledByDefault` = **false** — a Fab plugin must not force-enable itself in every project
 - [x] `VersionName` = **"1.0"**, `IsBetaVersion` = false
@@ -38,7 +38,7 @@ Status of the plugin against Epic's Fab requirements for a **code plugin**. Mirr
 ### Copyright & source code
 - [x] All source/header files carry `// Copyright Buckley Builds LLC 2026 All Rights Reserved.`
 - [x] Shipped Content files carry the same notice (in `SKILL.md` it sits **after** the YAML
-      frontmatter — a header above it breaks skill registration in `init_unreal.py`)
+      frontmatter — a header above it breaks the engine's frontmatter parse)
 - [x] `LICENSE` retained in the repo and excluded from the submission ZIP, matching VibeUE's packaging convention.
 
 ### File structure
@@ -56,8 +56,7 @@ Status of the plugin against Epic's Fab requirements for a **code plugin**. Mirr
       patch releases; a new engine-header deprecation under `/WX` becomes a rejected submission
       (VibeUE issue #569 was exactly this)
 - [x] No C++ third-party code or libraries — Third Party Software form is N/A
-- [x] Shipped Python (`Content/Python/init_unreal.py`) imports only engine modules
-      (`unreal`, `toolset_registry`) — no third-party packages
+- [x] No shipped Python — the agent skill is plain markdown discovered by the engine
 - [x] No binaries committed; Epic builds from source
 - [x] `RunUAT BuildPlugin` clean on **Win64** (2026-08-30): BUILD SUCCESSFUL, zero warnings, zero errors;
       FilterPlugin.ini honoured (README.md + test_prompts shipped, Icon128.png included)
@@ -65,13 +64,13 @@ Status of the plugin against Epic's Fab requirements for a **code plugin**. Mirr
       ```
       RunUAT.bat BuildPlugin -Plugin="<path>\Vibe3D.uplugin" -Package="<out>" -TargetPlatforms=Win64+Linux+Mac
       ```
-- [ ] Packaged plugin installed into a clean UE 5.8 project (not Proteus) and verified:
+- [ ] Packaged plugin installed into a clean UE 5.9 project (not Proteus) and verified:
       the toolset appears in `list_toolsets` as `Vibe3D.ModelingService` and the `modeling`
       skill registers
 
 ## Known caveats to disclose on the listing
 
-- Vibe3D depends on two engine plugins that ship as **Experimental** in 5.8 and are not enabled by
+- Vibe3D depends on two engine plugins that ship as **Experimental** in 5.9 and are not enabled by
   default: `ToolsetRegistry` and `PythonScriptPlugin`. Both are pulled in automatically as plugin
   dependencies, but the listing should say so.
 - The toolset is editor-only (module `Type: Editor`); nothing is available in a packaged game.
