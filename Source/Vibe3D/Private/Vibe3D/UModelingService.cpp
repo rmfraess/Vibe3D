@@ -3155,6 +3155,11 @@ namespace
 	{
 		return M.HasAttributes() ? M.Attributes()->GetSkinWeightsAttribute(FSkeletalMeshAttributes::DefaultSkinWeightProfileName) : nullptr;
 	}
+
+	const FSkinWeights* DefaultSkinWeights(const FDynamicMesh3& M)
+	{
+		return M.HasAttributes() ? M.Attributes()->GetSkinWeightsAttribute(FSkeletalMeshAttributes::DefaultSkinWeightProfileName) : nullptr;
+	}
 }
 
 FModelingResult UModelingService::CreateBones(int32 Handle, const TArray<FModelingBoneDef>& Bones)
