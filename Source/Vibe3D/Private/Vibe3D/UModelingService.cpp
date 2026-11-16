@@ -109,6 +109,7 @@ namespace
 		int32 LODIndex = 0;
 		int32 VertexCount = 0;
 		int32 TriangleCount = 0;
+		uint32 TopologyHash = 0;   // equal counts can still be rewired; vertex-indexed data (morphs) needs the same triangles
 		bool bFromRenderData = false;
 	};
 
@@ -177,6 +178,16 @@ namespace
 	int32 TriCount(UDynamicMesh* Mesh)
 	{
 		return Mesh ? Mesh->GetTriangleCount() : 0;
+	}
+
+	uint32 TopologyHash(UDynamicMesh* Mesh)
+	{
+		uint32 Hash = 0;
+		Mesh->ProcessMesh([&Hash](const FDynamicMesh3& M)
+		{
+			for (const int32 Tid : M.TriangleIndicesItr()) { Hash = HashCombineFast(Hash, GetTypeHash(M.GetTriangle(Tid))); }
+		});
+		return Hash;
 	}
 
 	int32 VertCount(UDynamicMesh* Mesh)
@@ -530,6 +541,7 @@ FModelingResult UModelingService::LoadMeshFromSkeletalMesh(const FString& AssetP
 	Origin.LODIndex = LODIndex;
 	Origin.VertexCount = VertCount(Mesh);
 	Origin.TriangleCount = TriCount(Mesh);
+	Origin.TopologyHash = TopologyHash(Mesh);
 	Origin.bFromRenderData = bFromRenderData;
 	Session().Origins.Add(Handle, Origin);
 	FModelingResult R = Ok(Handle, Mesh, FString::Printf(TEXT("Loaded %s LOD %d of %d (with bone weights, %s)%s"), *AssetPath, LODIndex, SkeletalMesh->GetLODNum(),
@@ -1885,7 +1897,7 @@ namespace
 		if (const FSkeletalOrigin* Origin = Session().Origins.Find(Handle))
 		{
 			bSameTopology = FPackageName::ObjectPathToPackageName(Origin->AssetPath) == SkeletalMesh->GetOutermost()->GetName() && Origin->LODIndex == LODIndex && !Origin->bFromRenderData
-				&& Origin->VertexCount == VertCount(Mesh) && Origin->TriangleCount == TriCount(Mesh);
+				&& Origin->VertexCount == VertCount(Mesh) && Origin->TriangleCount == TriCount(Mesh) && Origin->TopologyHash == TopologyHash(Mesh);
 		}
 
 		const FSkeletalMeshLODInfo* LODInfo = LODIndex < NumLODs ? SkeletalMesh->GetLODInfo(LODIndex) : nullptr;
@@ -1979,6 +1991,7 @@ FModelingResult UModelingService::SaveMeshToSkeletalMeshLOD(int32 Handle, const 
 		Mutable->LODIndex = LOD;
 		Mutable->VertexCount = VertCount(Mesh);
 		Mutable->TriangleCount = TriCount(Mesh);
+		Mutable->TopologyHash = TopologyHash(Mesh);
 		Mutable->bFromRenderData = false;
 	}
 	SaveIf(bSaveAsset, Path);
@@ -2033,6 +2046,10 @@ FModelingResult UModelingService::SaveMeshToSkeletalMesh(int32 Handle, const FSt
 	if (!Mesh) { return NoMesh(Handle); }
 	if (TriCount(Mesh) == 0) { return Fail(Handle, TEXT("Mesh is empty; nothing to save")); }
 	if (!AssetPath.StartsWith(TEXT("/"))) { return Fail(Handle, FString::Printf(TEXT("AssetPath must be a full package path like /Game/Folder/SK_Name (got '%s')"), *AssetPath)); }
+	if (const FPoseBinding* Pose = Session().Poses.Find(Handle))
+	{
+		return Fail(Handle, FString::Printf(TEXT("Handle %d holds a POSED mesh (%s): call unpose_mesh(handle) first so the reference pose is written"), Handle, *Pose->Source));
+	}
 
 	bool bMeshHasBones = false;
 	bool bMeshHasWeights = false;
@@ -2368,6 +2385,11 @@ FModelingIntakeReport UModelingService::IntakeGeneratedMesh(const FString& Sourc
 	{
 		if (UEditorAssetLibrary::DoesDirectoryExist(Stage)) { UEditorAssetLibrary::DeleteDirectory(Stage); }
 	};
+	if (UEditorAssetLibrary::DoesDirectoryHaveAssets(Stage, true))
+	{
+		// DeleteDirectory force-deletes without a reference check; only a stage this call created is ours to drop
+		return IntakeFail(AssetPath, FString::Printf(TEXT("Staging folder %s already holds assets; check and remove it, then run again"), *Stage));
+	}
 	DropStage();
 
 	// ---- 1. import into a staging folder
@@ -2507,13 +2529,19 @@ FModelingIntakeReport UModelingService::IntakeGeneratedMesh(const FString& Sourc
 	TArray<UObject*> ToSave = { Target };
 	TArray<FString> MovedFrom;
 	const FString StagePrefix = Stage + TEXT("/");
+	TArray<FString> MoveFailures;
 	const auto Move = [&](UObject* Object, const FString& DesiredName)
 	{
 		const FString OldPackage = Object->GetOutermost()->GetName();
+		const FString OldObject = Object->GetPathName();   // before the rename: the redirector keeps the OLD object name
 		const FString NewName = ClaimAssetName(Folder, DesiredName);
-		if (UEditorAssetLibrary::RenameAsset(OldPackage, Folder / NewName))
+		if (!UEditorAssetLibrary::RenameAsset(OldPackage, Folder / NewName))
 		{
-			MovedFrom.Add(OldPackage + TEXT(".") + Object->GetName());
+			MoveFailures.Add(OldObject);
+		}
+		else
+		{
+			MovedFrom.Add(OldObject);
 			UEditorAssetLibrary::SetMetadataTag(Object, IntakeSourceTag, File);   // lets a later intake recognise (and replace) its own leftovers
 			ToSave.Add(Object);
 		}
@@ -2560,6 +2588,11 @@ FModelingIntakeReport UModelingService::IntakeGeneratedMesh(const FString& Sourc
 		if (UObjectRedirector* Redirector = FindObject<UObjectRedirector>(nullptr, *Old)) { Redirectors.Add(Redirector); }
 	}
 	if (Redirectors.Num()) { FAssetToolsModule::GetModule().Get().FixupReferencers(Redirectors, false); }
+	if (MoveFailures.Num())
+	{
+		// the mesh may still reference these: keep the stage
+		return IntakeFail(AssetPath, FString::Printf(TEXT("Could not move %s out of %s; the stage is kept"), *FString::Join(MoveFailures, TEXT(", ")), *Stage));
+	}
 	DropStage();
 
 	// ---- 7. LODs, collision, provenance
@@ -2581,7 +2614,7 @@ FModelingIntakeReport UModelingService::IntakeGeneratedMesh(const FString& Sourc
 	UEditorAssetLibrary::SetMetadataTag(Target, IntakeSourceTag, File);
 	UEditorAssetLibrary::SetMetadataTag(Target, IntakeFingerprintTag, Fingerprint);
 	Target->MarkPackageDirty();
-	if (bSaveAsset) { UEditorAssetLibrary::SaveLoadedAssets(ToSave, false); }
+	if (bSaveAsset && !UEditorAssetLibrary::SaveLoadedAssets(ToSave, false)) { return IntakeFail(AssetPath, TEXT("Saving the intake's assets failed")); }
 
 	// ---- 8. report
 	R.bSuccess = true;
@@ -4068,6 +4101,21 @@ FModelingResult UModelingService::UnposeMesh(int32 Handle)
 		return Fail(Handle, FString::Printf(TEXT("The handle's bones changed since the pose was read (%d -> %d): unpose before replacing bones"), Binding->BoneSkinning.Num(), NumBones));
 	}
 	int32 Singular = 0;
+	Mesh->ProcessMesh([&](const FDynamicMesh3& M)
+	{
+		const FSkinWeights* Skin = DefaultSkinWeights(M);
+		FBoneWeights Weights;
+		for (const int32 Vid : M.VertexIndicesItr())
+		{
+			if (Skin) { Skin->GetValue(Vid, Weights); }
+			if (Skin && FMath::Abs(BlendSkinning(Weights, Binding->BoneSkinning).Determinant()) < UE_SMALL_NUMBER) { ++Singular; }
+		}
+	});
+	if (Singular > 0)
+	{
+		// a half-unposed mesh would mix spaces and unlock saving; leave it posed
+		return Fail(Handle, FString::Printf(TEXT("%d vertices have a degenerate skinning blend; nothing was unposed"), Singular));
+	}
 	Mesh->EditMesh([&](FDynamicMesh3& M)
 	{
 		const FSkinWeights* Skin = DefaultSkinWeights(M);
