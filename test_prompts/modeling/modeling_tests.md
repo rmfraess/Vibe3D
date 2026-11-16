@@ -4,7 +4,7 @@ Exercise the surviving Vibe3D service alongside native Unreal 5.9 GeometryScript
 `execute_python` after loading the `modeling` skill. Use an exclusively owned session and an
 empty task-owned `/Game/Developers/Vibe3DModelingTests` directory. Verify cleanup even on failure;
 never delete pre-existing assets or other users' handles. For a no-agent service-surface check,
-run `Content/Skills/modeling/scripts/exercise_all.txt`; success prints `RESULT: PASS`.
+run `Skills/modeling/scripts/exercise_all.txt`; success prints `RESULT: PASS`.
 
 ## 1. Session and native modeling
 

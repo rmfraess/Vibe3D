@@ -51,6 +51,11 @@ existing assets when authorized; inspect the saved result, collision, LODs and r
 | Assets | `save_mesh_to_skeletal_mesh` (empty skeleton path creates a skeleton), `set_asset_materials` (adds missing slots) |
 | UV and textures | `get_uv_stats`, `create_noise_texture`, `draw_on_texture` |
 | Detail | `append_mesh_along_polyline`, `cut_groove_along_polyline` |
+| Skeletal LODs in place | `load_mesh_from_skeletal_mesh` (source model; remembers asset + LOD), `save_mesh_to_skeletal_mesh_lod` (validated write of ONE LOD; keeps skeleton, slots, other LODs), `inspect_skeletal_mesh` |
+| Garment fit (posed) | `load_mesh_from_skinned_component` (the pose a placed or PIE character has now), `measure_penetration`, `push_inside`, `push_outside`, `select_hidden_by`, `unpose_mesh` |
+| Accessories | `skin_to_surface` (weights from the skinned surface underneath; Surface / Inpaint / Rigid), `remap_lod_bones` (off bones the leader drops at lower LODs) |
+| Generated props | `intake_generated_mesh` (GLB/FBX/OBJ -> one StaticMesh: real-world size, pivot, decimation, texture cap, LODs, collision, report) |
+| Raw vertex access | `get_vertex_positions` / `set_vertex_positions` (plain Vector lists); read the skill's `geometryscript-cheatsheet.md` before raw GeometryScript |
 
 ## 3. Rules that save a rebuild
 
@@ -65,5 +70,6 @@ existing assets when authorized; inspect the saved result, collision, LODs and r
   conformal unwraps of cylinder-shaped islands can fold.
 - Vertex-color masks smear across large triangles; use per-pixel material logic or a densely
   tessellated copy. Large bakes may outlast a timeout: inspect actual results before retrying.
-- Tests: `Automation RunTests Vibe3D.Modeling`; `Content/Skills/modeling/scripts/exercise_all.txt`
-  exercises the surviving service surface and prints `RESULT: PASS` on success.
+- Tests: `Automation RunTests Vibe3D.Modeling`; `Skills/modeling/scripts/exercise_all.txt`
+  exercises the fork's original tools and prints `RESULT: PASS`; the automation tests cover the skeletal LOD,
+  garment-fit, accessory and intake tools.

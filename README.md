@@ -23,7 +23,7 @@ Vibe3D works alongside [VibeUE](https://github.com/kevinpbuckley/VibeUE) but doe
   rigging and regional weight repair, UV statistics, texture painting and polyline detailing.
   `get_dynamic_mesh` is Python-only and hands the live mesh to native GeometryScript.
 - **`modeling` skill**: native modeling, Python naming, selection bridging, frame semantics,
-  texturing, rigging and gotchas. Registered at editor start; refresh with `Vibe3D.ReloadSkills`.
+  texturing, rigging and gotchas. Discovered natively from `Skills/`; edits are read on the next `GetSkills`.
 - **Agent guide**: `Vibe3D.GenerateAgentConfig [ClaudeCode|Gemini|Codex|Hermes|Cursor|Copilot|All] [import]`
   installs the generated block from `Content/samples/AGENTS.md.sample`; re-running refreshes that
   block without replacing the rest of the target file. `import` uses an `@path` for clients that
@@ -57,7 +57,7 @@ reporting success. Use the service to save a skeletal mesh, creating a skeleton 
 
 - Automation: `Automation RunTests Vibe3D.Modeling` (editor foreground may be required for the
   automation framework's frame-rate gate).
-- Run `Content/Skills/modeling/scripts/exercise_all.txt` as editor Python in an exclusively owned
+- Run `Skills/modeling/scripts/exercise_all.txt` as editor Python in an exclusively owned
   session. It exercises the surviving service surface and native GeometryScript, removes its
   temporary assets and handles, and prints `RESULT: PASS` on success. It refuses to overwrite an
   existing `/Game/Developers/Vibe3DModelingExercise` directory.
@@ -67,8 +67,7 @@ reporting success. Use the service to save a skeletal mesh, creating a skeleton 
 
 ```
 Source/Vibe3D/            module and ModelingService
-Content/Skills/modeling/  SKILL.md, sub-docs and scripts/exercise_all.txt
-Content/Python/           native AgentSkill registration
+Skills/modeling/          SKILL.md, sub-docs and scripts/exercise_all.txt (discovered natively by UE 5.9)
 Content/samples/          generated agent guide template
 test_prompts/modeling/    agent validation prompts
 ```

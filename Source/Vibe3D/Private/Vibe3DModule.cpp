@@ -5,7 +5,6 @@
 #include "Editor.h"
 #include "HAL/FileManager.h"
 #include "HAL/IConsoleManager.h"
-#include "IPythonScriptPlugin.h"
 #include "Misc/FileHelper.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/CoreDelegates.h"
@@ -54,7 +53,7 @@ namespace
 
 /**
  * Vibe3D: procedural modeling as an AI Editor Toolset. The module's only job is to hand the
- * AICallable service classes (UModelingService) to UE 5.8's ToolsetRegistry so they appear on the
+ * AICallable service classes (UModelingService) to UE 5.9's ToolsetRegistry so they appear on the
  * native MCP endpoint, and to expose a console command that re-reads the markdown skills.
  */
 class FVibe3DModule : public IModuleInterface
@@ -252,21 +251,7 @@ static FAutoConsoleCommandWithArgsAndOutputDevice Vibe3DGenerateAgentConfigComma
 	FConsoleCommandWithArgsAndOutputDeviceDelegate::CreateStatic(GenerateVibe3DAgentConfig)
 );
 
-// Re-run Content/Python/init_unreal.py so edited SKILL.md files are served without an editor restart.
-static FAutoConsoleCommand Vibe3DReloadSkillsCommand(
-	TEXT("Vibe3D.ReloadSkills"),
-	TEXT("Re-read Vibe3D's Content/Skills markdown into the registered AgentSkills (no editor restart needed)."),
-	FConsoleCommandDelegate::CreateLambda([]()
-	{
-		IPythonScriptPlugin* Python = IPythonScriptPlugin::Get();
-		const FString ContentDir = PluginContentDir();
-		if (!Python || !Python->IsPythonAvailable() || ContentDir.IsEmpty())
-		{
-			UE_LOG(LogVibe3D, Warning, TEXT("Vibe3D.ReloadSkills: Python or the plugin content directory is not available."));
-			return;
-		}
-		Python->ExecPythonCommand(*(ContentDir / TEXT("Python") / TEXT("init_unreal.py")));
-	})
-);
+// No skill-reload command: UE 5.9 discovers <Plugin>/Skills/**/SKILL.md natively
+// (ToolsetRegistry MarkdownAgentSkills) and re-reads the files on every GetSkills call.
 
 IMPLEMENT_MODULE(FVibe3DModule, Vibe3D)
