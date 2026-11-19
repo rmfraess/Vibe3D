@@ -94,13 +94,14 @@ try:
         unreal.GeometryScript_Primitives.append_sphere_lat_long(check("get_dynamic_mesh", s_h), unreal.GeometryScriptPrimitiveOptions(), unreal.Transform(), radius, 24, 32)
         return s_h
 
-    # Raw vertex access: plain Vector lists indexed by vertex ID.
+    # Raw vertex access through GeometryScript: Vector lists indexed by vertex ID.
     v = mesh()
     v_dm = check("get_dynamic_mesh", v)
     unreal.GeometryScript_Primitives.append_box(v_dm, unreal.GeometryScriptPrimitiveOptions(), unreal.Transform(), 100, 100, 100)
-    pos = list(check("get_vertex_positions", v))
+    GL = unreal.GeometryScript_List
+    pos = list(GL.convert_vector_list_to_array(unreal.GeometryScript_MeshQueries.get_all_vertex_positions(v_dm, False)[1]))
     assert len(pos) == 8, len(pos)
-    check("set_vertex_positions", v, [p + unreal.Vector(0, 0, 1) for p in pos])
+    unreal.GeometryScript_MeshEdits.set_all_mesh_vertex_positions(v_dm, GL.convert_array_to_vector_list([p + unreal.Vector(0, 0, 1) for p in pos]))
     assert abs(unreal.GeometryScript_MeshQueries.get_mesh_bounding_box(v_dm).min.z - 1.0) < 1e-3
 
     # Skeletal LOD round trip on the rig saved above: append LOD 1, edit it in place, inspect.
@@ -193,7 +194,7 @@ finally:
         failed.append(traceback.format_exc())
 
 expected = {"create_mesh", "release_mesh", "release_all_meshes", "list_meshes", "get_dynamic_mesh", "set_selection", "clear_selections", "append_torus", "append_revolve_polygon", "save_mesh_to_skeletal_mesh", "set_asset_materials", "create_bones", "bind_selection_to_bone", "select_by_bone_weight", "scale_bone_weights", "smooth_selection_bone_weights", "inspect_bone_weights", "get_uv_stats", "create_noise_texture", "draw_on_texture", "append_mesh_along_polyline", "cut_groove_along_polyline",
-            "get_vertex_positions", "set_vertex_positions", "load_mesh_from_skeletal_mesh", "save_mesh_to_skeletal_mesh_lod", "inspect_skeletal_mesh",
+            "load_mesh_from_skeletal_mesh", "save_mesh_to_skeletal_mesh_lod", "inspect_skeletal_mesh",
             "skin_to_surface", "remap_lod_bones", "load_mesh_from_skinned_component", "unpose_mesh", "measure_penetration", "push_inside",
             "push_outside", "select_hidden_by", "intake_generated_mesh"}
 missing = sorted(expected - called)

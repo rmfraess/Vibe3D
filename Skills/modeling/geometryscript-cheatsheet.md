@@ -6,9 +6,8 @@ The Python class of a GeometryScript library is its `ScriptName`, not its C++ na
 header or the Blueprint category. Every name below was read from `dir(unreal)` in a UE 5.9 editor. When a name is
 not here, list them yourself: `[n for n in dir(unreal) if n.startswith("GeometryScript_")]`.
 
-**Before reaching for GeometryScript, check ModelingService.** `svc.get_vertex_positions(h)` /
-`svc.set_vertex_positions(h, positions)` replace the `get_all_vertex_positions` + `convert_vector_list_to_array`
-round trip, and the selection, bone-weight and asset calls replace most raw loops. To use a library on a session
+**Before reaching for GeometryScript, check ModelingService.** The selection, bone-weight and asset calls
+replace most raw loops. To use a library on a session
 mesh: `dm = svc.get_dynamic_mesh(h)`; the library edits it in place and the next `svc.*` call sees the result.
 
 ## Wrong guesses agents made, and the real name
@@ -137,7 +136,6 @@ Selections are a different struct again (`unreal.GeometryScriptMeshSelection`); 
   `(dm, outcome)`. Unpack them; do not index the result as if it were the list.
 - **`skip_gaps`.** Vertex IDs are not dense after deletes, booleans or simplification. `get_all_vertex_positions(dm, False)`
   keeps the slots (the list index is the vertex ID) and `set_all_mesh_vertex_positions` expects that layout back.
-  `svc.get_vertex_positions` / `svc.set_vertex_positions` always use it.
 - **Skeletal meshes: read SOURCE_MODEL when you will write back.** `GeometryScriptMeshReadLOD.lod_type` defaults to
   `MAX_AVAILABLE`, and render data splits vertices along UV and normal seams, so its vertex count differs from the
   source model a writer expects (a jam script failed with `dm verts 10364 != weight verts 10350`).
