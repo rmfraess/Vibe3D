@@ -390,7 +390,7 @@ public:
 	// =====================================================================
 
 	/** Create an empty session mesh. Result.Handle is the new handle. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Create Mesh"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Create Mesh"))
 	static FModelingResult CreateMesh();
 
 
@@ -401,7 +401,7 @@ public:
 	 * fails (before the post-jam update the engine silently read the nearest LOD instead and the result claimed the one asked for).
 	 */
 	// A tool again on this fork: native loads do not record the origin save_mesh_to_skeletal_mesh_lod needs for vertex order.
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Load Mesh From Skeletal Mesh"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Load Mesh From Skeletal Mesh"))
 	static FModelingResult LoadMeshFromSkeletalMesh(const FString& AssetPath, int32 LODIndex = 0);
 
 	/**
@@ -414,11 +414,11 @@ public:
 	 * so (the handle's normals are then not used; the message says so). LODs generated from this one are regenerated from
 	 * the new geometry by the engine.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Save Mesh To Skeletal Mesh LOD"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Save Mesh To Skeletal Mesh LOD"))
 	static FModelingResult SaveMeshToSkeletalMeshLOD(int32 Handle, const FString& AssetPath = TEXT(""), int32 LODIndex = -1, bool bSaveAsset = true);
 
 	/** Skeleton, bone count, material slots and per-LOD source (source model or generated), vertex/triangle counts, bones used at runtime, removed bones. Read it before a LOD round trip. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Inspect Skeletal Mesh"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Read", DisplayName = "Inspect Skeletal Mesh"))
 	static FModelingResult InspectSkeletalMesh(const FString& AssetPath);
 
 
@@ -430,25 +430,25 @@ public:
 	 * all). bWorldSpace false = component space. Vertex IDs match the asset LOD, and the handle keeps the pose, so after
 	 * fitting edits UnposeMesh brings the result back to the reference pose for SaveMeshToSkeletalMeshLOD.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Load Mesh From Skinned Component"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Load Mesh From Skinned Component"))
 	static FModelingResult LoadMeshFromSkinnedComponent(const FString& ActorLabel, const FString& ComponentName = TEXT(""), bool bWorldSpace = false,
 		int32 LODIndex = 0, bool bPreferPlayWorld = true);
 
 	/** Undo the pose of a handle from LoadMeshFromSkinnedComponent: every vertex goes back through the inverse of its blended bone transform (with the handle's current weights), so edits made in the pose land in the reference pose. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Unpose Mesh"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Unpose Mesh"))
 	static FModelingResult UnposeMesh(int32 Handle);
 
 
 	/** Free one session mesh (and its selections). */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Release Mesh"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Release Mesh"))
 	static bool ReleaseMesh(int32 Handle);
 
 	/** Free every session mesh. Returns how many were released. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Release All Meshes"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Release All Meshes"))
 	static int32 ReleaseAllMeshes();
 
 	/** Handles currently alive in the session. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "List Meshes"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Read", DisplayName = "List Meshes"))
 	static TArray<int32> ListMeshes();
 
 	/** The UDynamicMesh behind a handle, for direct use with unreal.GeometryScript_* libraries (Python only).
@@ -457,25 +457,25 @@ public:
 	static UDynamicMesh* GetDynamicMesh(int32 Handle);
 
 	/** Store a natively built GeometryScriptMeshSelection on a handle under SelectionName, for the tools below that take one. Returns the selected count, or -1. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Set Selection"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Set Selection"))
 	static int32 SetSelection(int32 Handle, const FString& SelectionName, const FGeometryScriptMeshSelection& Selection);
 
 	/** Drop every named selection stored on a handle. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Clear Selections"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Clear Selections"))
 	static bool ClearSelections(int32 Handle);
 	/**
 	 * Every vertex position as a plain array indexed by vertex ID (no GeometryScriptVectorList to convert). The array is
 	 * MaxVertexID long: a mesh with ID gaps (after deletes or booleans) has (0,0,0) in the unused slots, so its length can
 	 * exceed get_mesh_info().vertex_count. Edit the list and hand it back to SetVertexPositions. Empty for an unknown handle.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Get Vertex Positions"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Read", DisplayName = "Get Vertex Positions"))
 	static TArray<FVector> GetVertexPositions(int32 Handle);
 
 	/**
 	 * Move every vertex at once: Positions[i] becomes vertex i (same layout GetVertexPositions returned; gap slots are ignored).
 	 * Topology, UVs, weights and selections are untouched; normals are not recomputed (call RecomputeNormals if the shape moved a lot).
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Set Vertex Positions"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Set Vertex Positions"))
 	static FModelingResult SetVertexPositions(int32 Handle, const TArray<FVector>& Positions);
 
 	// =====================================================================
@@ -483,12 +483,12 @@ public:
 	// =====================================================================
 
 	/** Torus around the Z axis. MaterialID is stamped on the new triangles. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Append Torus"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Append Torus"))
 	static FModelingResult AppendTorus(int32 Handle, FTransform Transform, float MajorRadius = 50.f, float MinorRadius = 25.f, int32 MajorSteps = 16,
 		int32 MinorSteps = 8, const FString& Origin = TEXT("Base"), int32 MaterialID = 0);
 
 	/** Revolve a 2D profile (X = radius offset, Y = height) around the Z axis: lathe shapes, rings, vases. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Append Revolve Polygon"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Append Revolve Polygon"))
 	static FModelingResult AppendRevolvePolygon(int32 Handle, FTransform Transform, const TArray<FVector2D>& ProfilePoints, float Radius = 100.f,
 		int32 Steps = 16, float RevolveDegrees = 360.f, int32 MaterialID = 0);
 
@@ -506,11 +506,11 @@ public:
 	 * (these used to write a broken asset): vertices without skin weight, bones the asset's skeleton lacks, a material ID
 	 * with no slot, a posed handle.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Save Mesh To Skeletal Mesh"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Save Mesh To Skeletal Mesh"))
 	static FModelingResult SaveMeshToSkeletalMesh(int32 Handle, const FString& AssetPath, const FString& SkeletonPath = TEXT(""), bool bReplaceExisting = true, bool bSaveAsset = true);
 
 	/** Assign material slots on a StaticMesh or SkeletalMesh asset: comma-separated material asset paths, in slot order; missing slots are added. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Set Asset Materials"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Set Asset Materials"))
 	static FModelingResult SetAssetMaterials(const FString& AssetPath, const FString& MaterialPaths, bool bSaveAsset = true);
 
 
@@ -542,7 +542,7 @@ public:
 	 * with bForce. MaxTextureSize sets each texture's "Maximum Texture Size" (what is built, cooked and loaded); the source
 	 * pixels in the .uasset stay at full resolution.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Intake Generated Mesh"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Intake Generated Mesh"))
 	static FModelingIntakeReport IntakeGeneratedMesh(const FString& SourceFile, const FString& AssetPath, float TargetSizeCm = 100.f,
 		const FString& FitAxis = TEXT("Height"), float YawDeg = 0.f, const FString& Pivot = TEXT("BottomCenter"), int32 MaxTriangles = 20000,
 		int32 MaxTextureSize = 1024, const FString& Collision = TEXT("ConvexHulls"), int32 MaxConvexHulls = 4, const FString& LODPercents = TEXT(""),
@@ -554,11 +554,11 @@ public:
 	// =====================================================================
 
 	/** Replace the mesh's bone hierarchy. The first bone is the root; every other bone names a parent listed before it. Every vertex starts bound to the root. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Create Bones"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Create Bones"))
 	static FModelingResult CreateBones(int32 Handle, const TArray<FModelingBoneDef>& Bones);
 
 	/** Bind the vertices of a selection ("" = all) to a bone. Weight 1 replaces their weights; a lower weight blends with what is there. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Bind Selection To Bone"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Bind Selection To Bone"))
 	static FModelingResult BindSelectionToBone(int32 Handle, const FString& SelectionName, const FString& BoneName, float Weight = 1.f);
 
 
@@ -593,20 +593,20 @@ public:
 	// =====================================================================
 
 	/** Report how far Handle's vertices break the rule "stay on Side of OtherHandle by Margin cm". Side "Inside" (skin under a garment) or "Outside" (a garment over skin). OutSelectionName (optional) stores the offending vertices. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Measure Penetration"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Measure Penetration"))
 	static FModelingPenetrationReport MeasurePenetration(int32 Handle, int32 OtherHandle, const FString& Side = TEXT("Inside"), float Margin = 0.f, float MaxDistance = 5.f,
 		const FString& SelectionName = TEXT(""), const FString& OutSelectionName = TEXT(""));
 
 	/** Move Handle's vertices that poke out through OtherHandle (or sit closer than Margin under it) inward along the other surface's normal until Margin under it — skin pushed under clothes. SmoothIterations feathers the move into that many rings of neighbours so no crease shows. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Push Inside"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Push Inside"))
 	static FModelingResult PushInside(int32 Handle, int32 OtherHandle, float Margin = 0.3f, const FString& SelectionName = TEXT(""), float MaxDistance = 5.f, int32 SmoothIterations = 2);
 
 	/** Move Handle's vertices that sink into OtherHandle (or sit closer than Margin above it) outward along the other surface's normal until Margin over it — a garment pushed off the body or off the face. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Push Outside"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Push Outside"))
 	static FModelingResult PushOutside(int32 Handle, int32 OtherHandle, float Margin = 0.3f, const FString& SelectionName = TEXT(""), float MaxDistance = 5.f, int32 SmoothIterations = 2);
 
 	/** Select Handle's triangles hidden under OtherHandle: every vertex (or any, with bAllVertices false) at least Margin inside it and covered by it. delete_faces on the result drops skin under clothes or an inner garment under an outer one. Returns the triangle count. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Select Hidden By"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Select Hidden By"))
 	static int32 SelectHiddenBy(int32 Handle, const FString& SelectionName, int32 OtherHandle, float Margin = 0.5f, float MaxDistance = 5.f, bool bAllVertices = true);
 
 
@@ -617,7 +617,7 @@ public:
 
 
 	/** Select every vertex where the listed bones (comma-separated) together hold at least MinWeight of the skinning — the region a bone actually drags. Returns the vertex count. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Select By Bone Weight"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Select By Bone Weight"))
 	static int32 SelectByBoneWeight(int32 Handle, const FString& SelectionName, const FString& BoneNames, float MinWeight = 0.25f);
 
 	/**
@@ -626,11 +626,11 @@ public:
 	 * clothing that follows the wrong bone — a collar lifting with the head, a skirt hem glued to a thigh. Vertices bound
 	 * only to the listed bones are skipped unless a receiver is named.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Scale Bone Weights"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Scale Bone Weights"))
 	static FModelingResult ScaleBoneWeights(int32 Handle, const FString& SelectionName, const FString& BoneNames, float Scale = 0.f, const FString& ReceiverBoneName = TEXT(""));
 
 	/** Laplacian-smooth skin weights across a selection ("" = whole mesh) — soften the seam after BindSelectionToBone or ScaleBoneWeights so a rigid patch blends into its surroundings. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Smooth Selection Bone Weights"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Smooth Selection Bone Weights"))
 	static FModelingResult SmoothSelectionBoneWeights(int32 Handle, const FString& SelectionName, int32 Iterations = 3, float Alpha = 0.5f);
 
 	/**
@@ -642,7 +642,7 @@ public:
 	 * the bone the surface under it is most weighted to). The result carries the source's bones, or those of
 	 * BonesFromSkeletalMesh (e.g. the body the accessory will follow as a leader-pose follower; weights are matched by name).
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Skin To Surface"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Skin To Surface"))
 	static FModelingResult SkinToSurface(int32 Handle, int32 SourceHandle, const FString& Mode = TEXT("Surface"), const FString& RigidBoneName = TEXT(""),
 		const FString& BonesFromSkeletalMesh = TEXT(""), int32 SmoothIterations = 0, float SmoothStrength = 0.f);
 
@@ -652,11 +652,11 @@ public:
 	 * LOD is written back in place. The follower's last LOD also covers the reference's lower LODs. Reports, per LOD, which
 	 * bones were remapped and how many vertices moved. A changed LOD that was generated by reduction becomes a custom LOD.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Remap LOD Bones"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Remap LOD Bones"))
 	static FModelingResult RemapLODBones(const FString& AssetPath, const FString& ReferenceSkeletalMeshPath, bool bSaveAsset = true);
 
 	/** Per-bone skin weight report over a selection ("" = whole mesh): influenced vertices, average/max weight per bone, weight-sum range, max influences. Verify a repair before saving. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Inspect Bone Weights"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Read", DisplayName = "Inspect Bone Weights"))
 	static FModelingResult InspectBoneWeights(int32 Handle, const FString& SelectionName = TEXT(""));
 
 	// =====================================================================
@@ -664,7 +664,7 @@ public:
 	// =====================================================================
 
 	/** Islands, coverage, overlap and texel density of a UV layer — check an unwrap before baking or painting. GridResolution is the raster used for coverage/overlap. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Get UV Stats", ScriptName = "get_uv_stats"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Read", DisplayName = "Get UV Stats", ScriptName = "get_uv_stats"))
 	static FModelingUVStats GetUVStats(int32 Handle, int32 UVLayer = 0, int32 GridResolution = 512);
 
 
@@ -674,12 +674,12 @@ public:
 
 
 	/** Tileable fractal (Perlin fBm) grayscale texture — grunge, wear masks, height detail. Scale is the number of noise cells across the image. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Create Noise Texture"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Create Noise Texture"))
 	static FModelingResult CreateNoiseTexture(const FString& AssetPath, int32 Width = 1024, int32 Height = 1024, float Scale = 8.f, int32 Octaves = 4, float Persistence = 0.5f,
 		int32 Seed = 0, bool bSaveAsset = true);
 
 	/** Draw into an existing 8-bit texture in UV space (0-1, V down). Shape: "Line" (polyline through Points), "Dots" (discs every SpacingPx along the polyline), "Rect" (Points[0]..Points[1] filled), "Fill" (whole texture). */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Draw On Texture"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Draw On Texture"))
 	static FModelingResult DrawOnTexture(const FString& AssetPath, const FString& Shape, const TArray<FVector2D>& Points, FLinearColor Color, float ThicknessPx = 2.f,
 		float SpacingPx = 8.f, bool bSaveAsset = true);
 
@@ -688,10 +688,10 @@ public:
 	// =====================================================================
 
 	/** Stamp another session mesh every Spacing along a polyline, X axis along the line and Z along UpVector — rivet rows, fastener lines, light strips. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Append Mesh Along Polyline"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Append Mesh Along Polyline"))
 	static FModelingResult AppendMeshAlongPolyline(int32 Handle, int32 OtherHandle, const TArray<FVector>& Points, float Spacing = 10.f, FVector UpVector = FVector::UpVector, float Scale = 1.f);
 
 	/** Cut a rectangular groove (Width across, Depth into the surface along -UpVector, and as far out along +UpVector) following a polyline — recessed panel lines and seams. */
-	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, DisplayName = "Cut Groove Along Polyline"))
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Cut Groove Along Polyline"))
 	static FModelingResult CutGrooveAlongPolyline(int32 Handle, const TArray<FVector>& Points, float Width = 1.f, float Depth = 1.f, FVector UpVector = FVector::UpVector);
 };
