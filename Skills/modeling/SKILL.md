@@ -93,6 +93,9 @@ with that struct and `GeometryScriptCalculateNormalsOptions`.
 | Assets | `save_mesh_to_skeletal_mesh` (empty skeleton path creates `<AssetPath>_Skeleton`), `set_asset_materials` (adds missing slots) |
 | UV and texture | `get_uv_stats`, `create_noise_texture`, `draw_on_texture` |
 | Detail | `append_mesh_along_polyline`, `cut_groove_along_polyline` |
+| Selection edits (by stored name, refresh the selection after topology changes) | `get_mesh_info`, `selection_count`, `selection_bounds`, `select_connected`, `expand_contract_selection`, `invert_selection`, `delete_faces`, `extrude_faces`, `inset_faces`, `outset_faces`, `offset_faces`, `translate_selection`, `smooth`, `noise`, `displace_from_texture`, `set_material_id`, `set_polygroup`, `set_vertex_color`, `project_uv`, `recompute_uvs`, `layout_uv`, `transform_uv` (native GeometryScript cannot read a selection stored by name, e.g. from `select_hidden_by`) |
+| Kept where native does less | `append_stairs` (material IDs), `copy_mesh` (keeps skeletal origin and pose records), `load_mesh_from_actor`, `split_by_components` (registered handles, largest first), `repair` (refills holes a repair opened), `pack_uv_per_material`, `set_num_uv_layers`, `list_bones` (per-bone vertex counts) |
+| Asset writes that save | `save_mesh_to_static_mesh` (collision-safe path, saves), `generate_collision`, `set_lods`, `bake_textures`, `bake_texture_transfer` |
 
 Check `FModelingResult.success` and `.message`; other methods return counts, booleans, arrays, or
 `FModelingUVStats`. `set_selection` returns the count or -1. `release_all_meshes` affects other

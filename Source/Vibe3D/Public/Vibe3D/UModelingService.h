@@ -474,6 +474,7 @@ public:
 	 * Move every vertex at once: Positions[i] becomes vertex i (same layout GetVertexPositions returned; gap slots are ignored).
 	 * Topology, UVs, weights and selections are untouched; normals are not recomputed (call RecomputeNormals if the shape moved a lot).
 	 */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Set Vertex Positions"))
 	static FModelingResult SetVertexPositions(int32 Handle, const TArray<FVector>& Positions);
 
 	// =====================================================================
@@ -520,11 +521,13 @@ public:
 
 	/** Method: "MinVolumeShapes", "ConvexHulls", "AlignedBoxes", "OrientedBoxes", "MinimalSpheres", "Capsules", "SweptHulls". Acts on the asset. */
 	// Not a tool on this fork (UE 5.9 GeometryScript covers it); kept for internal callers.
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Generate Collision"))
 	static FModelingResult GenerateCollision(const FString& AssetPath, const FString& Method = TEXT("MinVolumeShapes"), int32 MaxConvexHulls = 1,
 		int32 ConvexHullTargetFaceCount = 25, bool bSaveAsset = true);
 
 	/** Rebuild the asset's LOD chain: one entry per LOD as a fraction of LOD0 triangles (LOD0 first, e.g. [1.0, 0.5, 0.25]). */
 	// Not a tool on this fork (UE 5.9 GeometryScript covers it); kept for internal callers.
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Set LODs", ScriptName = "set_lods;set_lo_ds"))
 	static FModelingResult SetLODs(const FString& AssetPath, const TArray<float>& PercentTrianglesPerLOD, bool bAutoComputeScreenSize = true, bool bSaveAsset = true);
 
 	/**
@@ -692,4 +695,144 @@ public:
 	/** Cut a rectangular groove (Width across, Depth into the surface along -UpVector, and as far out along +UpVector) following a polyline — recessed panel lines and seams. */
 	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Cut Groove Along Polyline"))
 	static FModelingResult CutGrooveAlongPolyline(int32 Handle, const TArray<FVector>& Points, float Width = 1.f, float Depth = 1.f, FVector UpVector = FVector::UpVector);
+public:
+	// Restored from upstream: the native replacement does not do all of this (cut audit).
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Append Stairs"))
+	static FModelingResult AppendStairs(int32 Handle, FTransform Transform, float StepWidth = 100.f, float StepHeight = 20.f, float StepDepth = 30.f,
+		int32 NumSteps = 8, bool bFloating = false, int32 MaterialID = 0);
+
+	/** Bake maps from SourceHandle onto TargetHandle's UVs. BakeTypes: comma list of "TangentNormal", "ObjectNormal", "AmbientOcclusion", "Curvature", "Position", "BentNormal". Resolution 16..8192 (power of two). */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Bake Textures"))
+	static FModelingBakeResult BakeTextures(int32 TargetHandle, int32 SourceHandle, const FString& BakeTypes, int32 Resolution, const FString& OutputFolder,
+		const FString& BaseName, int32 TargetUVLayer = 0, int32 SamplesPerPixel = 1);
+
+	/** Transfer textures from SourceHandle's UVs onto TargetHandle's: one path = a plain texture bake, several (comma-separated, in source material-ID order) = a multi-texture bake. */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Bake Texture Transfer"))
+	static FModelingBakeResult BakeTextureTransfer(int32 TargetHandle, int32 SourceHandle, const FString& SourceTexturePaths, int32 Resolution, const FString& OutputFolder,
+		const FString& BaseName, int32 TargetUVLayer = 0, int32 SourceUVLayer = 0, int32 SamplesPerPixel = 1);
+
+	/** Duplicate a session mesh into a new handle. */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Copy Mesh"))
+	static FModelingResult CopyMesh(int32 Handle);
+
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Delete Faces"))
+	static FModelingResult DeleteFaces(int32 Handle, const FString& SelectionName);
+
+	/** Displace along normals by a texture sampled through a UV layer (height maps). */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Displace From Texture"))
+	static FModelingResult DisplaceFromTexture(int32 Handle, const FString& SelectionName, const FString& TexturePath, float Magnitude = 10.f, int32 UVLayer = 0);
+
+	/** Grow (or shrink with bContract) a selection by N rings of neighbours; stores it under NewSelectionName. */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Expand Contract Selection"))
+	static int32 ExpandContractSelection(int32 Handle, const FString& SelectionName, const FString& NewSelectionName, int32 Iterations = 1, bool bContract = false);
+
+	/** Extrude selected faces. Zero Direction = along each face's average normal; otherwise a fixed world direction. Negative distance recesses. The selection then holds the moved faces. */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Extrude Faces"))
+	static FModelingResult ExtrudeFaces(int32 Handle, const FString& SelectionName, float Distance = 10.f, FVector Direction = FVector::ZeroVector);
+
+	/** Counts, bounds, closedness, components, UV layers, material IDs, stored selections. */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Read", DisplayName = "Get Mesh Info"))
+	static FModelingMeshInfo GetMeshInfo(int32 Handle);
+
+	/** Inset selected faces (panel lines, frames). Softness rounds the inset boundary. The selection then holds the inner faces, ready to extrude. */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Inset Faces"))
+	static FModelingResult InsetFaces(int32 Handle, const FString& SelectionName, float Distance = 5.f, float Softness = 0.f);
+
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Invert Selection"))
+	static int32 InvertSelection(int32 Handle, const FString& SelectionName, const FString& NewSelectionName);
+
+	/** LayoutType: "Repack" (pack islands into 0-1 for TextureResolution), "Stack" (all islands on top of each other), "Normalize" (scale to unit texel density), "Transform" (Scale + Translation). Works on a selection's islands. */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Layout UV", ScriptName = "layout_uv"))
+	static FModelingResult LayoutUV(int32 Handle, int32 UVLayer = 0, const FString& LayoutType = TEXT("Repack"), const FString& SelectionName = TEXT(""), int32 TextureResolution = 2048,
+		float Scale = 1.f, FVector2D Translation = FVector2D::ZeroVector);
+
+	/** Bones on the mesh with their reference poses and influenced-vertex counts — check a rig before saving it. */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Read", DisplayName = "List Bones"))
+	static TArray<FModelingBoneInfo> ListBones(int32 Handle);
+
+	/** Load the static mesh of a level actor (by label) into a new session mesh; bWorldSpace bakes the actor transform in. */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Load Mesh From Actor"))
+	static FModelingResult LoadMeshFromActor(const FString& ActorLabel, bool bWorldSpace = false, int32 LODIndex = 0);
+
+	/** Perlin displacement along normals (rock, damage, organic wobble). */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Noise"))
+	static FModelingResult Noise(int32 Handle, const FString& SelectionName, float Magnitude = 5.f, float Frequency = 0.25f, int32 RandomSeed = 0);
+
+	/** Offset selected faces along their normals (parallel face offset). The selection then holds the moved faces. */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Offset Faces"))
+	static FModelingResult OffsetFaces(int32 Handle, const FString& SelectionName, float Distance = 10.f);
+
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Outset Faces"))
+	static FModelingResult OutsetFaces(int32 Handle, const FString& SelectionName, float Distance = 5.f, float Softness = 0.f);
+
+	/** Pack the islands of each material ID into their own full 0-1 range so every material slot gets its own texture set at full resolution. */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Pack UV Per Material", ScriptName = "pack_uv_per_material"))
+	static FModelingResult PackUVPerMaterial(int32 Handle, int32 UVLayer = 0, int32 TextureResolution = 2048);
+
+	/** Method: "Planar", "Box", "Cylinder"; the transform positions/scales the projector. */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Project UV"))
+	static FModelingResult ProjectUV(int32 Handle, const FString& Method, FTransform ProjectorTransform, int32 UVLayer = 0, const FString& SelectionName = TEXT(""));
+
+	/** Flatten each island with a conformal unwrap. IslandSource: "Polygroups" (one island per group — define them with SetPolygroup / ComputePolygroups) or "UVIslands" (re-flatten the existing islands). Method: "SpectralConformal" (default), "Conformal", "ExpMap". */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Recompute UVs", ScriptName = "recompute_uvs;recompute_u_vs"))
+	static FModelingResult RecomputeUVs(int32 Handle, int32 UVLayer = 0, const FString& IslandSource = TEXT("Polygroups"), const FString& Method = TEXT("SpectralConformal"),
+		const FString& SelectionName = TEXT(""), bool bAlignIslandsWithAxes = true);
+
+	/**
+	 * Repair degenerate triangles, drop tiny floating pieces, compact — the standard cleanup after
+	 * imports and booleans. Collapsing degenerates can punch holes in a watertight mesh, so with
+	 * bKeepClosed (default) a mesh that was closed on the way in is re-closed on the way out;
+	 * pass false if you want the raw result.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Repair"))
+	static FModelingResult Repair(int32 Handle, float MinComponentVolume = 0.0001f, int32 MinComponentTriangles = 1, bool bKeepClosed = true);
+
+	/** Write the mesh to a StaticMesh asset (created, or LOD0 replaced when it exists and bReplaceExisting). Saves the package. */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Save Mesh To Static Mesh"))
+	static FModelingResult SaveMeshToStaticMesh(int32 Handle, const FString& AssetPath, bool bReplaceExisting = true, bool bEnableCollision = true,
+		bool bEnableNanite = false, bool bSaveAsset = true);
+
+	/** Select the whole connected piece of geometry nearest to Point — a control surface isolated by slot cuts, a bolt on a plate. Returns the triangle count. */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Select Connected"))
+	static int32 SelectConnected(int32 Handle, const FString& SelectionName, FVector Point);
+
+	/** Bounding box of a selection (Min, Max). IsValid is false, with a zero box, when the selection is empty or unknown. */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Read", DisplayName = "Selection Bounds"))
+	static FBox SelectionBounds(int32 Handle, const FString& SelectionName);
+	/** C++ form of SelectionBounds: false when the selection is empty. Not reflected: an output reference would become a
+	 *  required input of the MCP tool and its value would be dropped. */
+	static bool SelectionBounds(int32 Handle, const FString& SelectionName, FVector& OutMin, FVector& OutMax);
+
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Read", DisplayName = "Selection Count"))
+	static int32 SelectionCount(int32 Handle, const FString& SelectionName);
+
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Set Material ID"))
+	static FModelingResult SetMaterialID(int32 Handle, const FString& SelectionName, int32 MaterialID);
+
+	/** Give every triangle of a selection one polygroup: GroupID >= 0 sets that id, -1 allocates a new group. Polygroups are the island source for RecomputeUVs("Polygroups") and PatchBuilder. */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Set Polygroup"))
+	static FModelingResult SetPolygroup(int32 Handle, const FString& SelectionName, int32 GroupID = -1);
+
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Set Vertex Color"))
+	static FModelingResult SetVertexColor(int32 Handle, const FString& SelectionName, FLinearColor Color);
+
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Smooth"))
+	static FModelingResult Smooth(int32 Handle, const FString& SelectionName, int32 Iterations = 5, float Alpha = 0.2f);
+
+	/** Split into connected components, each becoming a new session handle. */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Split By Components"))
+	static FModelingSplitResult SplitByComponents(int32 Handle);
+
+	/** Move / scale / rotate the UVs of a selection ("" = all) in UV space: scale and rotation are about Origin (0.5,0.5 = texture centre). */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Transform UV", ScriptName = "transform_uv"))
+	static FModelingResult TransformUV(int32 Handle, int32 UVLayer, const FString& SelectionName, FVector2D Translation, FVector2D Scale, float RotationDeg = 0.f, FVector2D Origin = FVector2D(0.5, 0.5));
+
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Translate Selection"))
+	static FModelingResult TranslateSelection(int32 Handle, const FString& SelectionName, FVector Delta);
+
+public:
+	// Restored from upstream: the native replacement does not do all of this (cut audit).
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Write", DisplayName = "Set Num UV Layers"))
+	static FModelingResult SetNumUVLayers(int32 Handle, int32 NumLayers);
+
 };
