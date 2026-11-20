@@ -158,6 +158,79 @@ try:
     finally:
         os.remove(obj)
 
+    # Tools kept because native does less: named selections, asset saves, registered handles.
+    def named(h_, name, normal):
+        outs = unreal.GeometryScript_MeshSelection.select_mesh_elements_by_normal_angle(check("get_dynamic_mesh", h_), normal, 5.0)
+        return check("set_selection", h_, name, next(x for x in outs if isinstance(x, unreal.GeometryScriptMeshSelection)))
+
+    c = mesh()
+    unreal.GeometryScript_Primitives.append_box(check("get_dynamic_mesh", c), unreal.GeometryScriptPrimitiveOptions(), unreal.Transform(), 100, 100, 100)
+    assert check("get_mesh_info", c).triangle_count == 12
+    copy = check("copy_mesh", c).handle
+    handles.append(copy)
+    assert named(c, "top", unreal.Vector(0, 0, 1)) == 2 and check("selection_count", c, "top") == 2
+    assert svc.selection_count(c, "no_such") < 0
+    assert svc.selection_bounds(c, "top").max.z > 99
+    called.add("selection_bounds")
+    check("expand_contract_selection", c, "top", "top_grown", 1, False)
+    assert check("invert_selection", c, "top", "not_top") == 10
+    check("inset_faces", c, "top", 5.0)
+    check("extrude_faces", c, "top", -3.0)
+    check("outset_faces", c, "top", 2.0)
+    named(c, "side", unreal.Vector(1, 0, 0))
+    check("offset_faces", c, "side", 2.0)
+    check("translate_selection", c, "side", unreal.Vector(1, 0, 0))
+    check("set_material_id", c, "side", 3)
+    check("set_polygroup", c, "side", -1)
+    check("set_vertex_color", c, "side", unreal.LinearColor(0, 1, 0, 1))
+    check("smooth", c, "side", 1, 0.1)
+    check("noise", c, "side", 0.5, 0.1, 3)
+    named(c, "bottom", unreal.Vector(0, 0, -1))
+    check("delete_faces", c, "bottom")
+    check("repair", c)
+    assert not svc.inset_faces(c, "no_such", 1.0).success
+    st = mesh()
+    check("append_stairs", st, unreal.Transform(), 60, 15, 20, 5, False, 2)
+    pos = list(check("get_vertex_positions", st))
+    assert not svc.set_vertex_positions(st, pos + [unreal.Vector()]).success, "oversized buffer must be rejected"
+    check("set_vertex_positions", st, [p + unreal.Vector(0, 0, 1) for p in pos])
+    two = mesh()
+    two_dm = check("get_dynamic_mesh", two)
+    unreal.GeometryScript_Primitives.append_box(two_dm, unreal.GeometryScriptPrimitiveOptions(), unreal.Transform(), 20, 20, 20)
+    unreal.GeometryScript_Primitives.append_box(two_dm, unreal.GeometryScriptPrimitiveOptions(), unreal.Transform(unreal.Vector(0, 300, 0)), 50, 50, 50)
+    assert check("select_connected", two, "piece", unreal.Vector(0, 300, 25)) == 12
+    sp = check("split_by_components", two)
+    handles.extend(sp.handles)
+    assert len(sp.handles) == 2
+    assert [b.influenced_vertices for b in check("list_bones", h) if str(b.name) == "flap"]
+    u = mesh()
+    unreal.GeometryScript_Primitives.append_box(check("get_dynamic_mesh", u), unreal.GeometryScriptPrimitiveOptions(), unreal.Transform(), 60, 60, 60)
+    check("set_num_uv_layers", u, 2)
+    check("project_uv", u, "Box", unreal.Transform(), 0, "")
+    named(u, "top", unreal.Vector(0, 0, 1))
+    check("set_material_id", u, "top", 1)
+    check("recompute_uvs", u, 0, "Polygroups", "SpectralConformal", "", True)
+    check("layout_uv", u, 0, "Repack", "", 512, 1.0, unreal.Vector2D(0, 0))
+    check("transform_uv", u, 0, "top", unreal.Vector2D(0.05, 0.0), unreal.Vector2D(1, 1), 0.0, unreal.Vector2D(0.5, 0.5))
+    check("pack_uv_per_material", u, 0, 512)
+    check("displace_from_texture", u, "top", tex, 1.0, 0)
+    sm = ROOT + "/SM_Exercise"
+    assert check("save_mesh_to_static_mesh", c, sm, True, True, False, True).asset_path
+    check("save_mesh_to_static_mesh", c, sm, True, True, False, True)   # replace path
+    check("generate_collision", sm, "ConvexHulls", 2)
+    check("set_lods", sm, [1.0, 0.5])
+    assert sm not in [p.get_name() for p in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()], "saving tools must leave the asset saved"
+    assert len(check("bake_textures", u, copy, "TangentNormal,AmbientOcclusion", 64, ROOT, "Exercise", 0, 1).texture_paths) == 2
+    assert check("bake_texture_transfer", u, u, tex, 64, ROOT, "Xfer", 0, 0, 1).texture_paths
+    if level.startswith("/Temp/"):
+        sm_actor = unreal.get_editor_subsystem(unreal.EditorActorSubsystem).spawn_actor_from_object(unreal.load_asset(sm), unreal.Vector(0, 0, -5000))
+        spawned.append(sm_actor)
+        sm_actor.set_actor_label("Vibe3DModelingExerciseActor")
+        loaded("load_mesh_from_actor", "Vibe3DModelingExerciseActor", True, 0)
+    else:
+        called.add("load_mesh_from_actor")
+        print("SKIPPED (open level %s is a saved map): load_mesh_from_actor" % level)
+
     # Invalid handle must fail without affecting other meshes.
     invalid = svc.append_torus(-1, unreal.Transform())
     assert not invalid.success
@@ -196,7 +269,16 @@ finally:
 expected = {"create_mesh", "release_mesh", "release_all_meshes", "list_meshes", "get_dynamic_mesh", "set_selection", "clear_selections", "append_torus", "append_revolve_polygon", "save_mesh_to_skeletal_mesh", "set_asset_materials", "create_bones", "bind_selection_to_bone", "select_by_bone_weight", "scale_bone_weights", "smooth_selection_bone_weights", "inspect_bone_weights", "get_uv_stats", "create_noise_texture", "draw_on_texture", "append_mesh_along_polyline", "cut_groove_along_polyline",
             "load_mesh_from_skeletal_mesh", "save_mesh_to_skeletal_mesh_lod", "inspect_skeletal_mesh",
             "skin_to_surface", "remap_lod_bones", "load_mesh_from_skinned_component", "unpose_mesh", "measure_penetration", "push_inside",
-            "push_outside", "select_hidden_by", "intake_generated_mesh"}
+            "push_outside", "select_hidden_by", "intake_generated_mesh",
+            "append_stairs", "bake_textures", "bake_texture_transfer", "copy_mesh", "delete_faces", "displace_from_texture",
+            "expand_contract_selection", "extrude_faces", "generate_collision", "get_mesh_info", "inset_faces", "invert_selection",
+            "layout_uv", "list_bones", "load_mesh_from_actor", "noise", "offset_faces", "outset_faces", "pack_uv_per_material",
+            "project_uv", "recompute_uvs", "repair", "save_mesh_to_static_mesh", "select_connected", "selection_bounds",
+            "selection_count", "set_lods", "set_material_id", "set_polygroup", "set_vertex_color", "set_vertex_positions",
+            "smooth", "split_by_components", "transform_uv", "translate_selection", "set_num_uv_layers", "get_vertex_positions"}
+missing_api = sorted(n for n in expected if not hasattr(svc, n))
+if missing_api:
+    failed.append("expected but not exposed: " + ", ".join(missing_api))
 missing = sorted(expected - called)
 if missing:
     failed.append("not called: " + ", ".join(missing))

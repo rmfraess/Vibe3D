@@ -468,6 +468,7 @@ public:
 	 * MaxVertexID long: a mesh with ID gaps (after deletes or booleans) has (0,0,0) in the unused slots, so its length can
 	 * exceed get_mesh_info().vertex_count. Edit the list and hand it back to SetVertexPositions. Empty for an unknown handle.
 	 */
+	UFUNCTION(BlueprintCallable, Category = "Vibe3D|Modeling", meta = (AICallable, AIAccessMode = "Read", DisplayName = "Get Vertex Positions"))
 	static TArray<FVector> GetVertexPositions(int32 Handle);
 
 	/**
